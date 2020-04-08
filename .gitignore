@@ -1,3 +1,4 @@
 .pioenvs
 .piolibdeps
 .vscode
+PlatformIO/src/config_override.h

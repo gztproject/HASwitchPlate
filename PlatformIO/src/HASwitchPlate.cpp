@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <config.h>
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 //           _____ _____ _____ _____
 //          |  |  |  _  |   __|  _  |
@@ -27,21 +28,17 @@
 // OUT OF OR IN CONNECTION WITH THE PRODUCT OR THE USE OR OTHER DEALINGS IN THE PRODUCT.
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// OPTIONAL: Assign default values here.
-char wifiSSID[32] = "GZTIOT"; // Leave unset for wireless autoconfig. Note that these values will be lost
-char wifiPass[64] = "Doljak81"; // when updating, but that's probably OK because they will be saved in EEPROM.
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// These defaults may be overwritten with values saved by the web interface
-char mqttServer[64] = "10.10.0.10";
-char mqttPort[6] = "8883";
-char mqttUser[32] = "gapi";
-char mqttPassword[32] = "lalalalala";
-char haspNode[16] = "plate01";
-char groupName[16] = "plates";
-char configUser[32] = "admin";
-char configPassword[32] = "";
-char motionPinConfig[3] = "0";
+char wifiSSID[32] = WIFI_SSID; 
+char wifiPass[64] = WIFI_PASS; 
+char mqttServer[64] = MQTT_SRV;
+char mqttPort[6] = MQTT_PORT;
+char mqttUser[32] = MQTT_USER;
+char mqttPassword[32] = MQTT_PASS;
+char haspNode[16] = HASP_NODE;
+char groupName[16] = GROUP_NAME;
+char configUser[32] = WEB_USER;
+char configPassword[32] = WEB_PASS;
+char motionPinConfig[3] = MOTION_PIN;
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 #include <FS.h>
