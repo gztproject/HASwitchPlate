@@ -17,11 +17,13 @@
 #define MQTT_PORT           ""
 #define MQTT_USER           ""
 #define MQTT_PASS           ""
+#define MQTT_MAX_PACKET_SIZE 4096
+
 #define HASP_NODE           "plate01"
 #define GROUP_NAME          "plates"
 #define WEB_USER            "admin"
 #define WEB_PASS            ""
-#define MOTION_PIN          "0"
+#define MOTION_PIN          0
 
 #ifdef USE_CONFIG_OVERRIDE
     #include <config_override.h>         // Configuration overrides for user_config.h

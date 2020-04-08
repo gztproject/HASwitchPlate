@@ -15,6 +15,6 @@
 #define GROUP_NAME          "plates"
 #define WEB_USER            "admin"
 #define WEB_PASS            ""
-#define MOTION_PIN          "0"
+#define MOTION_PIN          0
 
 #endif
