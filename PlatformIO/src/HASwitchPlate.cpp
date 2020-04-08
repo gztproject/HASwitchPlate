@@ -141,105 +141,561 @@ String espFirmwareUrl = "http://haswitchplate.com/update/HASwitchPlate.ino.d1_mi
 String lcdFirmwareUrl = "http://haswitchplate.com/update/HASwitchPlate.tft";
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-// Functions
+// Function declarations (C/C++ compatibility)
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
 void debugPrintln(String debugText)
-{ // Debug output line of text to our debug targets
-  String debugTimeText = "[+" + String(float(millis()) / 1000, 3) + "s] " + debugText;
-  Serial.println(debugTimeText);
-  if (debugSerialEnabled)
-  {
-    SoftwareSerial debugSerial(-1, 1); // -1==nc for RX, 1==TX pin
-    debugSerial.begin(115200);
-    debugSerial.println(debugTimeText);
-    debugSerial.flush();
-  }
-  if (debugTelnetEnabled)
-  {
-    if (telnetClient.connected())
-    {
-      telnetClient.println(debugTimeText);
-    }
-  }
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
 void debugPrint(String debugText)
-{ // Debug output single character to our debug targets (DON'T USE THIS!)
-  // Try to avoid using this function if at all possible.  When connected to telnet, printing each
-  // character requires a full TCP round-trip + acknowledgement back and execution halts while this
-  // happens.  Far better to put everything into a line and send it all out in one packet using
-  // debugPrintln.
-  if (debugSerialEnabled)
-    Serial.print(debugText);
-  {
-    SoftwareSerial debugSerial(-1, 1); // -1==nc for RX, 1==TX pin
-    debugSerial.begin(115200);
-    debugSerial.print(debugText);
-    debugSerial.flush();
-  }
-  if (debugTelnetEnabled)
-  {
-    if (telnetClient.connected())
-    {
-      telnetClient.print(debugText);
-    }
-  }
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
 void nextionSetAttr(String hmiAttribute, String hmiValue)
-{ // Set the value of a Nextion component attribute
-  Serial1.print(hmiAttribute);
-  Serial1.print("=");
-  Serial1.print(hmiValue);
-  Serial1.write(nextionSuffix, sizeof(nextionSuffix));
-  debugPrintln(String(F("HMI OUT: '")) + hmiAttribute + "=" + hmiValue + "'");
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
 void nextionGetAttr(String hmiAttribute)
-{ // Get the value of a Nextion component attribute
-  // This will only send the command to the panel requesting the attribute, the actual
-  // return of that value will be handled by nextionProcessInput and placed into mqttGetSubtopic
-  Serial1.print("get " + hmiAttribute);
-  Serial1.write(nextionSuffix, sizeof(nextionSuffix));
-  debugPrintln(String(F("HMI OUT: 'get ")) + hmiAttribute + "'");
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
 void nextionSendCmd(String nextionCmd)
-{ // Send a raw command to the Nextion panel
-  Serial1.print(nextionCmd);
-  Serial1.write(nextionSuffix, sizeof(nextionSuffix));
-  debugPrintln(String(F("HMI OUT: ")) + nextionCmd);
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
 void nextionParseJson(String &strPayload)
-{ // Parse an incoming JSON array into individual Nextion commands
-  if (strPayload.endsWith(",]"))
-  { // Trailing null array elements are an artifact of older Home Assistant automations and need to
-    // be removed before parsing by ArduinoJSON 6+
-    strPayload.remove(strPayload.length() - 2, 2);
-    strPayload.concat("]");
+bool nextionHandleInput()
+void nextionReset()
+void espReset()
+void nextionProcessInput()
+void mqttConnect()
+void mqttStatusUpdate()
+void espStartOta(String espOtaUrl)
+bool nextionOtaResponse()
+void nextionStartOtaDownload(String otaUrl)
+void configClearSaved()
+String getSubtringField(String data, char separator, int index)
+void mqttCallback(String &strTopic, String &strPayload)
+void nextionSetSpeed()
+void nextionConnect()
+void configSaveCallback()
+void espWifiConfigCallback(WiFiManager *myWiFiManager)
+void configSave()
+void espWifiSetup()
+void espWifiReconnect()
+void espSetupOta()
+void configRead()
+void webHandleNotFound()
+void webHandleRoot()
+void webHandleSaveConfig()
+void webHandleResetConfig()
+void webHandleResetBacklight()
+void webHandleFirmware()
+void webHandleEspFirmware()
+void webHandleLcdUpload()
+void webHandleLcdUpdateSuccess()
+void webHandleLcdUpdateFailure()
+void webHandleLcdDownload()
+void webHandleTftFileSize()
+void webHandleReboot()
+bool updateCheck()
+void motionSetup()
+void motionUpdate()
+void handleTelnetClient()
+String printHex8(byte *data, uint8_t length)
+
+
+void setup()
+{ // System setup
+  pinMode(nextionResetPin, OUTPUT);
+  digitalWrite(nextionResetPin, HIGH);
+  Serial.begin(115200);  // Serial - LCD RX (after swap), debug TX
+  Serial1.begin(115200); // Serial1 - LCD TX, no RX
+  Serial.swap();
+
+  debugPrintln(String(F("SYSTEM: Starting HASwitchPlate v")) + String(haspVersion));
+  debugPrintln(String(F("SYSTEM: Last reset reason: ")) + String(ESP.getResetInfo()));
+
+  configRead(); // Check filesystem for a saved config.json
+
+  while (!lcdConnected && (millis() < 5000))
+  { // Wait up to 5 seconds for serial input from LCD
+    nextionHandleInput();
   }
-  DynamicJsonDocument nextionCommands(mqttMaxPacketSize + 1024);
-  DeserializationError jsonError = deserializeJson(nextionCommands, strPayload);
-  if (jsonError)
-  { // Couldn't parse incoming JSON command
-    debugPrintln(String(F("MQTT: [ERROR] Failed to parse incoming JSON command with error: ")) + String(jsonError.c_str()));
+  if (lcdConnected)
+  {
+    debugPrintln(F("HMI: LCD responding, continuing program load"));
+    nextionSendCmd("connect");
   }
   else
   {
-    deserializeJson(nextionCommands, strPayload);
-    for (uint8_t i = 0; i < nextionCommands.size(); i++)
-    {
-      nextionSendCmd(nextionCommands[i]);
-      delayMicroseconds(500); // Larger JSON objects can take a while to run through over serial,
-    }                         // give the ESP and Nextion a moment to deal with life
+    debugPrintln(F("HMI: LCD not responding, continuing program load"));
   }
+
+  espWifiSetup(); // Start up networking
+
+  if (mdnsEnabled)
+  { // Setup mDNS service discovery if enabled
+    hMDNSService = MDNS.addService(haspNode, "http", "tcp", 80);
+    if (debugTelnetEnabled)
+    {
+      MDNS.addService(haspNode, "telnet", "tcp", 23);
+    }
+    MDNS.addServiceTxt(hMDNSService, "app_name", "HASwitchPlate");
+    MDNS.addServiceTxt(hMDNSService, "app_version", String(haspVersion).c_str());
+    MDNS.update();
+  }
+
+  if ((configPassword[0] != '\0') && (configUser[0] != '\0'))
+  { // Start the webserver with our assigned password if it's been configured...
+    httpOTAUpdate.setup(&webServer, "/update", configUser, configPassword);
+  }
+  else
+  { // or without a password if not
+    httpOTAUpdate.setup(&webServer, "/update");
+  }
+  webServer.on("/", webHandleRoot);
+  webServer.on("/saveConfig", webHandleSaveConfig);
+  webServer.on("/resetConfig", webHandleResetConfig);
+  webServer.on("/resetBacklight", webHandleResetBacklight);
+  webServer.on("/firmware", webHandleFirmware);
+  webServer.on("/espfirmware", webHandleEspFirmware);
+  webServer.on("/lcdupload", HTTP_POST, []() { webServer.send(200); }, webHandleLcdUpload);
+  webServer.on("/tftFileSize", webHandleTftFileSize);
+  webServer.on("/lcddownload", webHandleLcdDownload);
+  webServer.on("/lcdOtaSuccess", webHandleLcdUpdateSuccess);
+  webServer.on("/lcdOtaFailure", webHandleLcdUpdateFailure);
+  webServer.on("/reboot", webHandleReboot);
+  webServer.onNotFound(webHandleNotFound);
+  webServer.begin();
+  debugPrintln(String(F("HTTP: Server started @ http://")) + WiFi.localIP().toString());
+
+  espSetupOta(); // Start OTA firmware update
+
+  mqttClient.begin(mqttServer, atoi(mqttPort), wifiMQTTClient); // Create MQTT service object
+  mqttClient.onMessage(mqttCallback);                           // Setup MQTT callback function
+  mqttConnect();                                                // Connect to MQTT
+
+  motionSetup(); // Setup motion sensor if configured
+
+  if (beepEnabled)
+  { // Setup beep/tactile if configured
+    beepPin = 4;
+    pinMode(beepPin, OUTPUT);
+  }
+
+  if (debugTelnetEnabled)
+  { // Setup telnet server for remote debug output
+    telnetServer.setNoDelay(true);
+    telnetServer.begin();
+    debugPrintln(String(F("TELNET: debug server enabled at telnet:")) + WiFi.localIP().toString());
+  }
+
+  debugPrintln(F("SYSTEM: System init complete."));
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+void loop()
+{ // Main execution loop
+
+  if (nextionHandleInput())
+  { // Process user input from HMI
+    nextionProcessInput();
+  }
+
+  while ((WiFi.status() != WL_CONNECTED) || (WiFi.localIP().toString() == "0.0.0.0"))
+  { // Check WiFi is connected and that we have a valid IP, retry until we do.
+    if (WiFi.status() == WL_CONNECTED)
+    { // If we're currently connected, disconnect so we can try again
+      WiFi.disconnect();
+    }
+    espWifiReconnect();
+  }
+
+  if (!mqttClient.connected())
+  { // Check MQTT connection
+    debugPrintln("MQTT: not connected, connecting.");
+    mqttConnect();
+  }
+
+  mqttClient.loop();        // MQTT client loop
+  ArduinoOTA.handle();      // Arduino OTA loop
+  webServer.handleClient(); // webServer loop
+  if (mdnsEnabled)
+  {
+    MDNS.update();
+  }
+
+  if ((lcdVersion < 1) && (millis() <= (nextionRetryMax * nextionCheckInterval)))
+  { // Attempt to connect to LCD panel to collect model and version info during startup
+    nextionConnect();
+  }
+  else if ((lcdVersion > 0) && (millis() <= (nextionRetryMax * nextionCheckInterval)) && !startupCompleteFlag)
+  { // We have LCD info, so trigger an update check + report
+    if (updateCheck())
+    { // Send a status update if the update check worked
+      mqttStatusUpdate();
+      startupCompleteFlag = true;
+    }
+  }
+  else if ((millis() > (nextionRetryMax * nextionCheckInterval)) && !startupCompleteFlag)
+  { // We still don't have LCD info so go ahead and run the rest of the checks once at startup anyway
+    updateCheck();
+    mqttStatusUpdate();
+    startupCompleteFlag = true;
+  }
+
+  if ((millis() - statusUpdateTimer) >= statusUpdateInterval)
+  { // Run periodic status update
+    statusUpdateTimer = millis();
+    mqttStatusUpdate();
+  }
+
+  if ((millis() - updateCheckTimer) >= updateCheckInterval)
+  { // Run periodic update check
+    updateCheckTimer = millis();
+    if (updateCheck())
+    { // Send a status update if the update check worked
+      mqttStatusUpdate();
+    }
+  }
+
+  if (motionEnabled)
+  { // Check on our motion sensor
+    motionUpdate();
+  }
+
+  if (debugTelnetEnabled)
+  {
+    handleTelnetClient(); // telnetClient loop
+  }
+
+  if (beepEnabled)
+  { // Process Beeps
+    if ((beepState == true) && (millis() - beepPrevMillis >= beepOnTime) && ((beepCounter > 0)))
+    {
+      beepState = false;         // Turn it off
+      beepPrevMillis = millis(); // Remember the time
+      analogWrite(beepPin, 254); // start beep for beepOnTime
+      if (beepCounter > 0)
+      { // Update the beep counter.
+        beepCounter--;
+      }
+    }
+    else if ((beepState == false) && (millis() - beepPrevMillis >= beepOffTime) && ((beepCounter >= 0)))
+    {
+      beepState = true;          // turn it on
+      beepPrevMillis = millis(); // Remember the time
+      analogWrite(beepPin, 0);   // stop beep for beepOffTime
+    }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Functions
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+void mqttConnect()
+{ // MQTT connection and subscriptions
+
+  static bool mqttFirstConnect = true; // For the first connection, we want to send an OFF/ON state to
+                                       // trigger any automations, but skip that if we reconnect while
+                                       // still running the sketch
+
+  // Check to see if we have a broker configured and notify the user if not
+  if (mqttServer[0] == 0)
+  {
+    nextionSendCmd("page 0");
+    nextionSetAttr("p[0].b[1].font", "6");
+    nextionSetAttr("p[0].b[1].txt", "\"WiFi Connected!\\r " + String(WiFi.SSID()) + "\\rIP: " + WiFi.localIP().toString() + "\\r\\rConfigure MQTT:\\rhttp://" + WiFi.localIP().toString() + "\"");
+    while (mqttServer[0] == 0)
+    { // Handle HTTP and OTA while we're waiting for MQTT to be configured
+      yield();
+      if (nextionHandleInput())
+      { // Process user input from HMI
+        nextionProcessInput();
+      }
+      webServer.handleClient();
+      ArduinoOTA.handle();
+    }
+  }
+  // MQTT topic string definitions
+  mqttStateTopic = "hasp/" + String(haspNode) + "/state";
+  mqttStateJSONTopic = "hasp/" + String(haspNode) + "/state/json";
+  mqttCommandTopic = "hasp/" + String(haspNode) + "/command";
+  mqttGroupCommandTopic = "hasp/" + String(groupName) + "/command";
+  mqttStatusTopic = "hasp/" + String(haspNode) + "/status";
+  mqttSensorTopic = "hasp/" + String(haspNode) + "/sensor";
+  mqttLightCommandTopic = "hasp/" + String(haspNode) + "/light/switch";
+  mqttLightStateTopic = "hasp/" + String(haspNode) + "/light/state";
+  mqttLightBrightCommandTopic = "hasp/" + String(haspNode) + "/brightness/set";
+  mqttLightBrightStateTopic = "hasp/" + String(haspNode) + "/brightness/state";
+  mqttMotionStateTopic = "hasp/" + String(haspNode) + "/motion/state";
+
+  const String mqttCommandSubscription = mqttCommandTopic + "/#";
+  const String mqttGroupCommandSubscription = mqttGroupCommandTopic + "/#";
+  const String mqttLightSubscription = "hasp/" + String(haspNode) + "/light/#";
+  const String mqttLightBrightSubscription = "hasp/" + String(haspNode) + "/brightness/#";
+
+  // Loop until we're reconnected to MQTT
+  while (!mqttClient.connected())
+  {
+    // Create a reconnect counter
+    static uint8_t mqttReconnectCount = 0;
+
+    // Generate an MQTT client ID as haspNode + our MAC address
+    mqttClientId = String(haspNode) + "-" + String(espMac[0], HEX) + String(espMac[1], HEX) + String(espMac[2], HEX) + String(espMac[3], HEX) + String(espMac[4], HEX) + String(espMac[5], HEX);
+    nextionSendCmd("page 0");
+    nextionSetAttr("p[0].b[1].font", "6");
+    nextionSetAttr("p[0].b[1].txt", "\"WiFi Connected!\\r " + String(WiFi.SSID()) + "\\rIP: " + WiFi.localIP().toString() + "\\r\\rMQTT Connecting:\\r " + String(mqttServer) + "\"");
+    debugPrintln(String(F("MQTT: Attempting connection to broker ")) + String(mqttServer) + " as clientID " + mqttClientId);
+
+    // Set keepAlive, cleanSession, timeout
+    mqttClient.setOptions(30, true, 5000);
+
+    // declare LWT
+    mqttClient.setWill(mqttStatusTopic.c_str(), "OFF");
+
+    if (mqttClient.connect(mqttClientId.c_str(), mqttUser, mqttPassword))
+    { // Attempt to connect to broker, setting last will and testament
+      // Subscribe to our incoming topics
+      if (mqttClient.subscribe(mqttCommandSubscription))
+      {
+        debugPrintln(String(F("MQTT: subscribed to ")) + mqttCommandSubscription);
+      }
+      if (mqttClient.subscribe(mqttGroupCommandSubscription))
+      {
+        debugPrintln(String(F("MQTT: subscribed to ")) + mqttGroupCommandSubscription);
+      }
+      if (mqttClient.subscribe(mqttLightSubscription))
+      {
+        debugPrintln(String(F("MQTT: subscribed to ")) + mqttLightSubscription);
+      }
+      if (mqttClient.subscribe(mqttLightBrightSubscription))
+      {
+        debugPrintln(String(F("MQTT: subscribed to ")) + mqttLightSubscription);
+      }
+      if (mqttClient.subscribe(mqttStatusTopic))
+      {
+        debugPrintln(String(F("MQTT: subscribed to ")) + mqttStatusTopic);
+      }
+
+      if (mqttFirstConnect)
+      { // Force any subscribed clients to toggle OFF/ON when we first connect to
+        // make sure we get a full panel refresh at power on.  Sending OFF,
+        // "ON" will be sent by the mqttStatusTopic subscription action.
+        debugPrintln(String(F("MQTT: binary_sensor state: [")) + mqttStatusTopic + "] : [OFF]");
+        mqttClient.publish(mqttStatusTopic, "OFF", true, 1);
+        mqttFirstConnect = false;
+      }
+      else
+      {
+        debugPrintln(String(F("MQTT: binary_sensor state: [")) + mqttStatusTopic + "] : [ON]");
+        mqttClient.publish(mqttStatusTopic, "ON", true, 1);
+      }
+
+      mqttReconnectCount = 0;
+
+      // Update panel with MQTT status
+      nextionSetAttr("p[0].b[1].txt", "\"WiFi Connected!\\r " + String(WiFi.SSID()) + "\\rIP: " + WiFi.localIP().toString() + "\\r\\rMQTT Connected:\\r " + String(mqttServer) + "\"");
+      debugPrintln(F("MQTT: connected"));
+      if (nextionActivePage)
+      {
+        nextionSendCmd("page " + String(nextionActivePage));
+      }
+    }
+    else
+    { // Retry until we give up and restart after connectTimeout seconds
+      mqttReconnectCount++;
+      if (mqttReconnectCount > ((connectTimeout / 10) - 1))
+      {
+        debugPrintln(String(F("MQTT connection attempt ")) + String(mqttReconnectCount) + String(F(" failed with rc ")) + String(mqttClient.returnCode()) + String(F(".  Restarting device.")));
+        espReset();
+      }
+      debugPrintln(String(F("MQTT connection attempt ")) + String(mqttReconnectCount) + String(F(" failed with rc ")) + String(mqttClient.returnCode()) + String(F(".  Trying again in 30 seconds.")));
+      nextionSetAttr("p[0].b[1].txt", "\"WiFi Connected:\\r " + String(WiFi.SSID()) + "\\rIP: " + WiFi.localIP().toString() + "\\r\\rMQTT Connect to:\\r " + String(mqttServer) + "\\rFAILED rc=" + String(mqttClient.returnCode()) + "\\r\\rRetry in 30 sec\"");
+      unsigned long mqttReconnectTimer = millis(); // record current time for our timeout
+      while ((millis() - mqttReconnectTimer) < 30000)
+      { // Handle HTTP and OTA while we're waiting 30sec for MQTT to reconnect
+        if (nextionHandleInput())
+        { // Process user input from HMI
+          nextionProcessInput();
+        }
+        webServer.handleClient();
+        ArduinoOTA.handle();
+        delay(10);
+      }
+    }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+void mqttCallback(String &strTopic, String &strPayload)
+{ // Handle incoming commands from MQTT
+
+  // strTopic: homeassistant/haswitchplate/devicename/command/p[1].b[4].txt
+  // strPayload: "Lights On"
+  // subTopic: p[1].b[4].txt
+
+  // Incoming Namespace (replace /device/ with /group/ for group commands)
+  // '[...]/device/command' -m '' = No command requested, respond with mqttStatusUpdate()
+  // '[...]/device/command' -m 'dim=50' = nextionSendCmd("dim=50")
+  // '[...]/device/command/json' -m '["dim=5", "page 1"]' = nextionSendCmd("dim=50"), nextionSendCmd("page 1")
+  // '[...]/device/command/page' -m '1' = nextionSendCmd("page 1")
+  // '[...]/device/command/statusupdate' -m '' = mqttStatusUpdate()
+  // '[...]/device/command/lcdupdate' -m 'http://192.168.0.10/local/HASwitchPlate.tft' = nextionStartOtaDownload("http://192.168.0.10/local/HASwitchPlate.tft")
+  // '[...]/device/command/lcdupdate' -m '' = nextionStartOtaDownload("lcdFirmwareUrl")
+  // '[...]/device/command/espupdate' -m 'http://192.168.0.10/local/HASwitchPlate.ino.d1_mini.bin' = espStartOta("http://192.168.0.10/local/HASwitchPlate.ino.d1_mini.bin")
+  // '[...]/device/command/espupdate' -m '' = espStartOta("espFirmwareUrl")
+  // '[...]/device/command/p[1].b[4].txt' -m '' = nextionGetAttr("p[1].b[4].txt")
+  // '[...]/device/command/p[1].b[4].txt' -m '"Lights On"' = nextionSetAttr("p[1].b[4].txt", "\"Lights On\"")
+
+  debugPrintln(String(F("MQTT IN: '")) + strTopic + "' : '" + strPayload + "'");
+
+  if (((strTopic == mqttCommandTopic) || (strTopic == mqttGroupCommandTopic)) && (strPayload == ""))
+  {                     // '[...]/device/command' -m '' = No command requested, respond with mqttStatusUpdate()
+    mqttStatusUpdate(); // return status JSON via MQTT
+  }
+  else if (strTopic == mqttCommandTopic || strTopic == mqttGroupCommandTopic)
+  { // '[...]/device/command' -m 'dim=50' == nextionSendCmd("dim=50")
+    nextionSendCmd(strPayload);
+  }
+  else if (strTopic == (mqttCommandTopic + "/page") || strTopic == (mqttGroupCommandTopic + "/page"))
+  { // '[...]/device/command/page' -m '1' == nextionSendCmd("page 1")
+    if (nextionActivePage != strPayload.toInt())
+    { // Hass likes to send duplicate responses to things like page requests and there are no plans to fix that behavior, so try and track it locally
+      nextionActivePage = strPayload.toInt();
+      nextionSendCmd("page " + strPayload);
+    }
+  }
+  else if (strTopic == (mqttCommandTopic + "/json") || strTopic == (mqttGroupCommandTopic + "/json"))
+  {                               // '[...]/device/command/json' -m '["dim=5", "page 1"]' = nextionSendCmd("dim=50"), nextionSendCmd("page 1")
+    nextionParseJson(strPayload); // Send to nextionParseJson()
+  }
+  else if (strTopic == (mqttCommandTopic + "/statusupdate") || strTopic == (mqttGroupCommandTopic + "/statusupdate"))
+  {                     // '[...]/device/command/statusupdate' == mqttStatusUpdate()
+    mqttStatusUpdate(); // return status JSON via MQTT
+  }
+  else if (strTopic == (mqttCommandTopic + "/lcdupdate") || strTopic == (mqttGroupCommandTopic + "/lcdupdate"))
+  { // '[...]/device/command/lcdupdate' -m 'http://192.168.0.10/local/HASwitchPlate.tft' == nextionStartOtaDownload("http://192.168.0.10/local/HASwitchPlate.tft")
+    if (strPayload == "")
+    {
+      nextionStartOtaDownload(lcdFirmwareUrl);
+    }
+    else
+    {
+      nextionStartOtaDownload(strPayload);
+    }
+  }
+  else if (strTopic == (mqttCommandTopic + "/espupdate") || strTopic == (mqttGroupCommandTopic + "/espupdate"))
+  { // '[...]/device/command/espupdate' -m 'http://192.168.0.10/local/HASwitchPlate.ino.d1_mini.bin' == espStartOta("http://192.168.0.10/local/HASwitchPlate.ino.d1_mini.bin")
+    if (strPayload == "")
+    {
+      espStartOta(espFirmwareUrl);
+    }
+    else
+    {
+      espStartOta(strPayload);
+    }
+  }
+  else if (strTopic == (mqttCommandTopic + "/reboot") || strTopic == (mqttGroupCommandTopic + "/reboot"))
+  { // '[...]/device/command/reboot' == reboot microcontroller)
+    debugPrintln(F("MQTT: Rebooting device"));
+    espReset();
+  }
+  else if (strTopic == (mqttCommandTopic + "/lcdreboot") || strTopic == (mqttGroupCommandTopic + "/lcdreboot"))
+  { // '[...]/device/command/lcdreboot' == reboot LCD panel)
+    debugPrintln(F("MQTT: Rebooting LCD"));
+    nextionReset();
+  }
+  else if (strTopic == (mqttCommandTopic + "/factoryreset") || strTopic == (mqttGroupCommandTopic + "/factoryreset"))
+  { // '[...]/device/command/factoryreset' == clear all saved settings)
+    configClearSaved();
+  }
+  else if (strTopic == (mqttCommandTopic + "/beep") || strTopic == (mqttGroupCommandTopic + "/beep"))
+  { // '[...]/device/command/beep')
+    String mqqtvar1 = getSubtringField(strPayload, ',', 0);
+    String mqqtvar2 = getSubtringField(strPayload, ',', 1);
+    String mqqtvar3 = getSubtringField(strPayload, ',', 2);
+
+    beepOnTime = mqqtvar1.toInt();
+    beepOffTime = mqqtvar2.toInt();
+    beepCounter = mqqtvar3.toInt();
+  }
+  else if (strTopic.startsWith(mqttCommandTopic) && (strPayload == ""))
+  { // '[...]/device/command/p[1].b[4].txt' -m '' == nextionGetAttr("p[1].b[4].txt")
+    String subTopic = strTopic.substring(mqttCommandTopic.length() + 1);
+    mqttGetSubtopic = "/" + subTopic;
+    nextionGetAttr(subTopic);
+  }
+  else if (strTopic.startsWith(mqttGroupCommandTopic) && (strPayload == ""))
+  { // '[...]/group/command/p[1].b[4].txt' -m '' == nextionGetAttr("p[1].b[4].txt")
+    String subTopic = strTopic.substring(mqttGroupCommandTopic.length() + 1);
+    mqttGetSubtopic = "/" + subTopic;
+    nextionGetAttr(subTopic);
+  }
+  else if (strTopic.startsWith(mqttCommandTopic))
+  { // '[...]/device/command/p[1].b[4].txt' -m '"Lights On"' == nextionSetAttr("p[1].b[4].txt", "\"Lights On\"")
+    String subTopic = strTopic.substring(mqttCommandTopic.length() + 1);
+    nextionSetAttr(subTopic, strPayload);
+  }
+  else if (strTopic.startsWith(mqttGroupCommandTopic))
+  { // '[...]/group/command/p[1].b[4].txt' -m '"Lights On"' == nextionSetAttr("p[1].b[4].txt", "\"Lights On\"")
+    String subTopic = strTopic.substring(mqttGroupCommandTopic.length() + 1);
+    nextionSetAttr(subTopic, strPayload);
+  }
+  else if (strTopic == mqttLightBrightCommandTopic)
+  { // change the brightness from the light topic
+    int panelDim = map(strPayload.toInt(), 0, 255, 0, 100);
+    nextionSetAttr("dim", String(panelDim));
+    nextionSendCmd("dims=dim");
+    mqttClient.publish(mqttLightBrightStateTopic, strPayload);
+  }
+  else if (strTopic == mqttLightCommandTopic && strPayload == "OFF")
+  { // set the panel dim OFF from the light topic, saving current dim level first
+    nextionSendCmd("dims=dim");
+    nextionSetAttr("dim", "0");
+    mqttClient.publish(mqttLightStateTopic, "OFF");
+  }
+  else if (strTopic == mqttLightCommandTopic && strPayload == "ON")
+  { // set the panel dim ON from the light topic, restoring saved dim level
+    nextionSendCmd("dim=dims");
+    mqttClient.publish(mqttLightStateTopic, "ON");
+  }
+  else if (strTopic == mqttStatusTopic && strPayload == "OFF")
+  { // catch a dangling LWT from a previous connection if it appears
+    mqttClient.publish(mqttStatusTopic, "ON");
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+void mqttStatusUpdate()
+{ // Periodically publish a JSON string indicating system status
+  String mqttStatusPayload = "{";
+  mqttStatusPayload += String(F("\"status\":\"available\","));
+  mqttStatusPayload += String(F("\"espVersion\":")) + String(haspVersion) + String(F(","));
+  if (updateEspAvailable)
+  {
+    mqttStatusPayload += String(F("\"updateEspAvailable\":true,"));
+  }
+  else
+  {
+    mqttStatusPayload += String(F("\"updateEspAvailable\":false,"));
+  }
+  if (lcdConnected)
+  {
+    mqttStatusPayload += String(F("\"lcdConnected\":true,"));
+  }
+  else
+  {
+    mqttStatusPayload += String(F("\"lcdConnected\":false,"));
+  }
+  mqttStatusPayload += String(F("\"lcdVersion\":\"")) + String(lcdVersion) + String(F("\","));
+  if (updateLcdAvailable)
+  {
+    mqttStatusPayload += String(F("\"updateLcdAvailable\":true,"));
+  }
+  else
+  {
+    mqttStatusPayload += String(F("\"updateLcdAvailable\":false,"));
+  }
+  mqttStatusPayload += String(F("\"espUptime\":")) + String(long(millis() / 1000)) + String(F(","));
+  mqttStatusPayload += String(F("\"signalStrength\":")) + String(WiFi.RSSI()) + String(F(","));
+  mqttStatusPayload += String(F("\"haspIP\":\"")) + WiFi.localIP().toString() + String(F("\","));
+  mqttStatusPayload += String(F("\"heapFree\":")) + String(ESP.getFreeHeap()) + String(F(","));
+  mqttStatusPayload += String(F("\"heapFragmentation\":")) + String(ESP.getHeapFragmentation()) + String(F(","));
+  mqttStatusPayload += String(F("\"espCore\":\"")) + String(ESP.getCoreVersion()) + String(F("\""));
+  mqttStatusPayload += "}";
+
+  mqttClient.publish(mqttSensorTopic, mqttStatusPayload, true, 1);
+  mqttClient.publish(mqttStatusTopic, "ON", true, 1);
+  debugPrintln(String(F("MQTT: status update: ")) + String(mqttStatusPayload));
+  debugPrintln(String(F("MQTT: binary_sensor state: [")) + mqttStatusTopic + "] : [ON]");
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -281,55 +737,6 @@ bool nextionHandleInput()
     hmiDebug = "HMI IN: ";
   }
   return nextionCommandComplete;
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-void nextionReset()
-{
-  debugPrintln(F("HMI: Rebooting LCD"));
-  digitalWrite(nextionResetPin, LOW);
-  Serial1.print("rest");
-  Serial1.write(nextionSuffix, sizeof(nextionSuffix));
-  Serial1.flush();
-  delay(100);
-  digitalWrite(nextionResetPin, HIGH);
-
-  unsigned long lcdResetTimer = millis();
-  const unsigned long lcdResetTimeout = 5000;
-
-  lcdConnected = false;
-  while (!lcdConnected && (millis() < (lcdResetTimer + lcdResetTimeout)))
-  {
-    nextionHandleInput();
-  }
-  if (lcdConnected)
-  {
-    debugPrintln(F("HMI: Rebooting LCD completed"));
-    if (nextionActivePage)
-    {
-      nextionSendCmd("page " + String(nextionActivePage));
-    }
-  }
-  else
-  {
-    debugPrintln(F("ERROR: Rebooting LCD completed, but LCD is not responding."));
-  }
-  mqttClient.publish(mqttStatusTopic, "OFF");
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-void espReset()
-{
-  debugPrintln(F("RESET: HASP reset"));
-  if (mqttClient.connected())
-  {
-    mqttClient.publish(mqttStatusTopic, "OFF", true, 1);
-    mqttClient.publish(mqttSensorTopic, "{\"status\": \"unavailable\"}", true, 1);
-    mqttClient.disconnect();
-  }
-  nextionReset();
-  ESP.reset();
-  delay(5000);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -513,240 +920,58 @@ void nextionProcessInput()
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-void mqttConnect()
-{ // MQTT connection and subscriptions
-
-  static bool mqttFirstConnect = true; // For the first connection, we want to send an OFF/ON state to
-                                       // trigger any automations, but skip that if we reconnect while
-                                       // still running the sketch
-
-  // Check to see if we have a broker configured and notify the user if not
-  if (mqttServer[0] == 0)
-  {
-    nextionSendCmd("page 0");
-    nextionSetAttr("p[0].b[1].font", "6");
-    nextionSetAttr("p[0].b[1].txt", "\"WiFi Connected!\\r " + String(WiFi.SSID()) + "\\rIP: " + WiFi.localIP().toString() + "\\r\\rConfigure MQTT:\\rhttp://" + WiFi.localIP().toString() + "\"");
-    while (mqttServer[0] == 0)
-    { // Handle HTTP and OTA while we're waiting for MQTT to be configured
-      yield();
-      if (nextionHandleInput())
-      { // Process user input from HMI
-        nextionProcessInput();
-      }
-      webServer.handleClient();
-      ArduinoOTA.handle();
-    }
-  }
-  // MQTT topic string definitions
-  mqttStateTopic = "hasp/" + String(haspNode) + "/state";
-  mqttStateJSONTopic = "hasp/" + String(haspNode) + "/state/json";
-  mqttCommandTopic = "hasp/" + String(haspNode) + "/command";
-  mqttGroupCommandTopic = "hasp/" + String(groupName) + "/command";
-  mqttStatusTopic = "hasp/" + String(haspNode) + "/status";
-  mqttSensorTopic = "hasp/" + String(haspNode) + "/sensor";
-  mqttLightCommandTopic = "hasp/" + String(haspNode) + "/light/switch";
-  mqttLightStateTopic = "hasp/" + String(haspNode) + "/light/state";
-  mqttLightBrightCommandTopic = "hasp/" + String(haspNode) + "/brightness/set";
-  mqttLightBrightStateTopic = "hasp/" + String(haspNode) + "/brightness/state";
-  mqttMotionStateTopic = "hasp/" + String(haspNode) + "/motion/state";
-
-  const String mqttCommandSubscription = mqttCommandTopic + "/#";
-  const String mqttGroupCommandSubscription = mqttGroupCommandTopic + "/#";
-  const String mqttLightSubscription = "hasp/" + String(haspNode) + "/light/#";
-  const String mqttLightBrightSubscription = "hasp/" + String(haspNode) + "/brightness/#";
-
-  // Loop until we're reconnected to MQTT
-  while (!mqttClient.connected())
-  {
-    // Create a reconnect counter
-    static uint8_t mqttReconnectCount = 0;
-
-    // Generate an MQTT client ID as haspNode + our MAC address
-    mqttClientId = String(haspNode) + "-" + String(espMac[0], HEX) + String(espMac[1], HEX) + String(espMac[2], HEX) + String(espMac[3], HEX) + String(espMac[4], HEX) + String(espMac[5], HEX);
-    nextionSendCmd("page 0");
-    nextionSetAttr("p[0].b[1].font", "6");
-    nextionSetAttr("p[0].b[1].txt", "\"WiFi Connected!\\r " + String(WiFi.SSID()) + "\\rIP: " + WiFi.localIP().toString() + "\\r\\rMQTT Connecting:\\r " + String(mqttServer) + "\"");
-    debugPrintln(String(F("MQTT: Attempting connection to broker ")) + String(mqttServer) + " as clientID " + mqttClientId);
-
-    // Set keepAlive, cleanSession, timeout
-    mqttClient.setOptions(30, true, 5000);
-
-    // declare LWT
-    mqttClient.setWill(mqttStatusTopic.c_str(), "OFF");
-
-    if (mqttClient.connect(mqttClientId.c_str(), mqttUser, mqttPassword))
-    { // Attempt to connect to broker, setting last will and testament
-      // Subscribe to our incoming topics
-      if (mqttClient.subscribe(mqttCommandSubscription))
-      {
-        debugPrintln(String(F("MQTT: subscribed to ")) + mqttCommandSubscription);
-      }
-      if (mqttClient.subscribe(mqttGroupCommandSubscription))
-      {
-        debugPrintln(String(F("MQTT: subscribed to ")) + mqttGroupCommandSubscription);
-      }
-      if (mqttClient.subscribe(mqttLightSubscription))
-      {
-        debugPrintln(String(F("MQTT: subscribed to ")) + mqttLightSubscription);
-      }
-      if (mqttClient.subscribe(mqttLightBrightSubscription))
-      {
-        debugPrintln(String(F("MQTT: subscribed to ")) + mqttLightSubscription);
-      }
-      if (mqttClient.subscribe(mqttStatusTopic))
-      {
-        debugPrintln(String(F("MQTT: subscribed to ")) + mqttStatusTopic);
-      }
-
-      if (mqttFirstConnect)
-      { // Force any subscribed clients to toggle OFF/ON when we first connect to
-        // make sure we get a full panel refresh at power on.  Sending OFF,
-        // "ON" will be sent by the mqttStatusTopic subscription action.
-        debugPrintln(String(F("MQTT: binary_sensor state: [")) + mqttStatusTopic + "] : [OFF]");
-        mqttClient.publish(mqttStatusTopic, "OFF", true, 1);
-        mqttFirstConnect = false;
-      }
-      else
-      {
-        debugPrintln(String(F("MQTT: binary_sensor state: [")) + mqttStatusTopic + "] : [ON]");
-        mqttClient.publish(mqttStatusTopic, "ON", true, 1);
-      }
-
-      mqttReconnectCount = 0;
-
-      // Update panel with MQTT status
-      nextionSetAttr("p[0].b[1].txt", "\"WiFi Connected!\\r " + String(WiFi.SSID()) + "\\rIP: " + WiFi.localIP().toString() + "\\r\\rMQTT Connected:\\r " + String(mqttServer) + "\"");
-      debugPrintln(F("MQTT: connected"));
-      if (nextionActivePage)
-      {
-        nextionSendCmd("page " + String(nextionActivePage));
-      }
-    }
-    else
-    { // Retry until we give up and restart after connectTimeout seconds
-      mqttReconnectCount++;
-      if (mqttReconnectCount > ((connectTimeout / 10) - 1))
-      {
-        debugPrintln(String(F("MQTT connection attempt ")) + String(mqttReconnectCount) + String(F(" failed with rc ")) + String(mqttClient.returnCode()) + String(F(".  Restarting device.")));
-        espReset();
-      }
-      debugPrintln(String(F("MQTT connection attempt ")) + String(mqttReconnectCount) + String(F(" failed with rc ")) + String(mqttClient.returnCode()) + String(F(".  Trying again in 30 seconds.")));
-      nextionSetAttr("p[0].b[1].txt", "\"WiFi Connected:\\r " + String(WiFi.SSID()) + "\\rIP: " + WiFi.localIP().toString() + "\\r\\rMQTT Connect to:\\r " + String(mqttServer) + "\\rFAILED rc=" + String(mqttClient.returnCode()) + "\\r\\rRetry in 30 sec\"");
-      unsigned long mqttReconnectTimer = millis(); // record current time for our timeout
-      while ((millis() - mqttReconnectTimer) < 30000)
-      { // Handle HTTP and OTA while we're waiting 30sec for MQTT to reconnect
-        if (nextionHandleInput())
-        { // Process user input from HMI
-          nextionProcessInput();
-        }
-        webServer.handleClient();
-        ArduinoOTA.handle();
-        delay(10);
-      }
-    }
-  }
+void nextionSetAttr(String hmiAttribute, String hmiValue)
+{ // Set the value of a Nextion component attribute
+  Serial1.print(hmiAttribute);
+  Serial1.print("=");
+  Serial1.print(hmiValue);
+  Serial1.write(nextionSuffix, sizeof(nextionSuffix));
+  debugPrintln(String(F("HMI OUT: '")) + hmiAttribute + "=" + hmiValue + "'");
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-void mqttStatusUpdate()
-{ // Periodically publish a JSON string indicating system status
-  String mqttStatusPayload = "{";
-  mqttStatusPayload += String(F("\"status\":\"available\","));
-  mqttStatusPayload += String(F("\"espVersion\":")) + String(haspVersion) + String(F(","));
-  if (updateEspAvailable)
-  {
-    mqttStatusPayload += String(F("\"updateEspAvailable\":true,"));
-  }
-  else
-  {
-    mqttStatusPayload += String(F("\"updateEspAvailable\":false,"));
-  }
-  if (lcdConnected)
-  {
-    mqttStatusPayload += String(F("\"lcdConnected\":true,"));
-  }
-  else
-  {
-    mqttStatusPayload += String(F("\"lcdConnected\":false,"));
-  }
-  mqttStatusPayload += String(F("\"lcdVersion\":\"")) + String(lcdVersion) + String(F("\","));
-  if (updateLcdAvailable)
-  {
-    mqttStatusPayload += String(F("\"updateLcdAvailable\":true,"));
-  }
-  else
-  {
-    mqttStatusPayload += String(F("\"updateLcdAvailable\":false,"));
-  }
-  mqttStatusPayload += String(F("\"espUptime\":")) + String(long(millis() / 1000)) + String(F(","));
-  mqttStatusPayload += String(F("\"signalStrength\":")) + String(WiFi.RSSI()) + String(F(","));
-  mqttStatusPayload += String(F("\"haspIP\":\"")) + WiFi.localIP().toString() + String(F("\","));
-  mqttStatusPayload += String(F("\"heapFree\":")) + String(ESP.getFreeHeap()) + String(F(","));
-  mqttStatusPayload += String(F("\"heapFragmentation\":")) + String(ESP.getHeapFragmentation()) + String(F(","));
-  mqttStatusPayload += String(F("\"espCore\":\"")) + String(ESP.getCoreVersion()) + String(F("\""));
-  mqttStatusPayload += "}";
-
-  mqttClient.publish(mqttSensorTopic, mqttStatusPayload, true, 1);
-  mqttClient.publish(mqttStatusTopic, "ON", true, 1);
-  debugPrintln(String(F("MQTT: status update: ")) + String(mqttStatusPayload));
-  debugPrintln(String(F("MQTT: binary_sensor state: [")) + mqttStatusTopic + "] : [ON]");
+void nextionGetAttr(String hmiAttribute)
+{ // Get the value of a Nextion component attribute
+  // This will only send the command to the panel requesting the attribute, the actual
+  // return of that value will be handled by nextionProcessInput and placed into mqttGetSubtopic
+  Serial1.print("get " + hmiAttribute);
+  Serial1.write(nextionSuffix, sizeof(nextionSuffix));
+  debugPrintln(String(F("HMI OUT: 'get ")) + hmiAttribute + "'");
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-void espStartOta(String espOtaUrl)
-{ // Update ESP firmware from HTTP
-  nextionSendCmd("page 0");
-  nextionSetAttr("p[0].b[1].txt", "\"HTTP update\\rstarting...\"");
-  WiFiUDP::stopAll(); // Keep mDNS responder from breaking things
-
-  t_httpUpdate_return returnCode = ESPhttpUpdate.update(wifiClient, espOtaUrl);
-  switch (returnCode)
-  {
-  case HTTP_UPDATE_FAILED:
-    debugPrintln("ESPFW: HTTP_UPDATE_FAILED error " + String(ESPhttpUpdate.getLastError()) + " " + ESPhttpUpdate.getLastErrorString());
-    nextionSetAttr("p[0].b[1].txt", "\"HTTP Update\\rFAILED\"");
-    break;
-
-  case HTTP_UPDATE_NO_UPDATES:
-    debugPrintln(F("ESPFW: HTTP_UPDATE_NO_UPDATES"));
-    nextionSetAttr("p[0].b[1].txt", "\"HTTP Update\\rNo update\"");
-    break;
-
-  case HTTP_UPDATE_OK:
-    debugPrintln(F("ESPFW: HTTP_UPDATE_OK"));
-    nextionSetAttr("p[0].b[1].txt", "\"HTTP Update\\rcomplete!\\r\\rRestarting.\"");
-    espReset();
-  }
-  delay(5000);
-  nextionSendCmd("page " + String(nextionActivePage));
+void nextionSendCmd(String nextionCmd)
+{ // Send a raw command to the Nextion panel
+  Serial1.print(nextionCmd);
+  Serial1.write(nextionSuffix, sizeof(nextionSuffix));
+  debugPrintln(String(F("HMI OUT: ")) + nextionCmd);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-bool nextionOtaResponse()
-{ // Monitor the serial port for a 0x05 response within our timeout
-
-  unsigned long nextionCommandTimeout = 2000;   // timeout for receiving termination string in milliseconds
-  unsigned long nextionCommandTimer = millis(); // record current time for our timeout
-  bool otaSuccessVal = false;
-  while ((millis() - nextionCommandTimer) < nextionCommandTimeout)
+void nextionParseJson(String &strPayload)
+{ // Parse an incoming JSON array into individual Nextion commands
+  if (strPayload.endsWith(",]"))
+  { // Trailing null array elements are an artifact of older Home Assistant automations and need to
+    // be removed before parsing by ArduinoJSON 6+
+    strPayload.remove(strPayload.length() - 2, 2);
+    strPayload.concat("]");
+  }
+  DynamicJsonDocument nextionCommands(mqttMaxPacketSize + 1024);
+  DeserializationError jsonError = deserializeJson(nextionCommands, strPayload);
+  if (jsonError)
+  { // Couldn't parse incoming JSON command
+    debugPrintln(String(F("MQTT: [ERROR] Failed to parse incoming JSON command with error: ")) + String(jsonError.c_str()));
+  }
+  else
   {
-    if (Serial.available())
+    deserializeJson(nextionCommands, strPayload);
+    for (uint8_t i = 0; i < nextionCommands.size(); i++)
     {
-      byte inByte = Serial.read();
-      if (inByte == 0x5)
-      {
-        otaSuccessVal = true;
-        break;
-      }
-    }
-    else
-    {
-      delay(1);
-    }
+      nextionSendCmd(nextionCommands[i]);
+      delayMicroseconds(500); // Larger JSON objects can take a while to run through over serial,
+    }                         // give the ESP and Nextion a moment to deal with life
   }
-  return otaSuccessVal;
 }
-
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 void nextionStartOtaDownload(String otaUrl)
@@ -899,198 +1124,29 @@ void nextionStartOtaDownload(String otaUrl)
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-void configClearSaved()
-{ // Clear out all local storage
-  nextionSetAttr("dims", "100");
-  nextionSendCmd("page 0");
-  nextionSetAttr("p[0].b[1].txt", "\"Resetting\\rsystem...\"");
-  debugPrintln(F("RESET: Formatting SPIFFS"));
-  SPIFFS.format();
-  debugPrintln(F("RESET: Clearing WiFiManager settings..."));
-  WiFiManager wifiManager;
-  wifiManager.resetSettings();
-  EEPROM.begin(512);
-  debugPrintln(F("Clearing EEPROM..."));
-  for (uint16_t i = 0; i < EEPROM.length(); i++)
+bool nextionOtaResponse()
+{ // Monitor the serial port for a 0x05 response within our timeout
+
+  unsigned long nextionCommandTimeout = 2000;   // timeout for receiving termination string in milliseconds
+  unsigned long nextionCommandTimer = millis(); // record current time for our timeout
+  bool otaSuccessVal = false;
+  while ((millis() - nextionCommandTimer) < nextionCommandTimeout)
   {
-    EEPROM.write(i, 0);
-  }
-  nextionSetAttr("p[0].b[1].txt", "\"Rebooting\\rsystem...\"");
-  debugPrintln(F("RESET: Rebooting device"));
-  espReset();
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// Submitted by benmprojects to handle "beep" commands. Split
-// incoming String by separator, return selected field as String
-// Original source: https://arduino.stackexchange.com/a/1237
-String getSubtringField(String data, char separator, int index)
-{
-  int found = 0;
-  int strIndex[] = {0, -1};
-  int maxIndex = data.length();
-
-  for (int i = 0; i <= maxIndex && found <= index; i++)
-  {
-    if (data.charAt(i) == separator || i == maxIndex)
+    if (Serial.available())
     {
-      found++;
-      strIndex[0] = strIndex[1] + 1;
-      strIndex[1] = (i == maxIndex) ? i + 1 : i;
-    }
-  }
-  return found > index ? data.substring(strIndex[0], strIndex[1]) : "";
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-void mqttCallback(String &strTopic, String &strPayload)
-{ // Handle incoming commands from MQTT
-
-  // strTopic: homeassistant/haswitchplate/devicename/command/p[1].b[4].txt
-  // strPayload: "Lights On"
-  // subTopic: p[1].b[4].txt
-
-  // Incoming Namespace (replace /device/ with /group/ for group commands)
-  // '[...]/device/command' -m '' = No command requested, respond with mqttStatusUpdate()
-  // '[...]/device/command' -m 'dim=50' = nextionSendCmd("dim=50")
-  // '[...]/device/command/json' -m '["dim=5", "page 1"]' = nextionSendCmd("dim=50"), nextionSendCmd("page 1")
-  // '[...]/device/command/page' -m '1' = nextionSendCmd("page 1")
-  // '[...]/device/command/statusupdate' -m '' = mqttStatusUpdate()
-  // '[...]/device/command/lcdupdate' -m 'http://192.168.0.10/local/HASwitchPlate.tft' = nextionStartOtaDownload("http://192.168.0.10/local/HASwitchPlate.tft")
-  // '[...]/device/command/lcdupdate' -m '' = nextionStartOtaDownload("lcdFirmwareUrl")
-  // '[...]/device/command/espupdate' -m 'http://192.168.0.10/local/HASwitchPlate.ino.d1_mini.bin' = espStartOta("http://192.168.0.10/local/HASwitchPlate.ino.d1_mini.bin")
-  // '[...]/device/command/espupdate' -m '' = espStartOta("espFirmwareUrl")
-  // '[...]/device/command/p[1].b[4].txt' -m '' = nextionGetAttr("p[1].b[4].txt")
-  // '[...]/device/command/p[1].b[4].txt' -m '"Lights On"' = nextionSetAttr("p[1].b[4].txt", "\"Lights On\"")
-
-  debugPrintln(String(F("MQTT IN: '")) + strTopic + "' : '" + strPayload + "'");
-
-  if (((strTopic == mqttCommandTopic) || (strTopic == mqttGroupCommandTopic)) && (strPayload == ""))
-  {                     // '[...]/device/command' -m '' = No command requested, respond with mqttStatusUpdate()
-    mqttStatusUpdate(); // return status JSON via MQTT
-  }
-  else if (strTopic == mqttCommandTopic || strTopic == mqttGroupCommandTopic)
-  { // '[...]/device/command' -m 'dim=50' == nextionSendCmd("dim=50")
-    nextionSendCmd(strPayload);
-  }
-  else if (strTopic == (mqttCommandTopic + "/page") || strTopic == (mqttGroupCommandTopic + "/page"))
-  { // '[...]/device/command/page' -m '1' == nextionSendCmd("page 1")
-    if (nextionActivePage != strPayload.toInt())
-    { // Hass likes to send duplicate responses to things like page requests and there are no plans to fix that behavior, so try and track it locally
-      nextionActivePage = strPayload.toInt();
-      nextionSendCmd("page " + strPayload);
-    }
-  }
-  else if (strTopic == (mqttCommandTopic + "/json") || strTopic == (mqttGroupCommandTopic + "/json"))
-  {                               // '[...]/device/command/json' -m '["dim=5", "page 1"]' = nextionSendCmd("dim=50"), nextionSendCmd("page 1")
-    nextionParseJson(strPayload); // Send to nextionParseJson()
-  }
-  else if (strTopic == (mqttCommandTopic + "/statusupdate") || strTopic == (mqttGroupCommandTopic + "/statusupdate"))
-  {                     // '[...]/device/command/statusupdate' == mqttStatusUpdate()
-    mqttStatusUpdate(); // return status JSON via MQTT
-  }
-  else if (strTopic == (mqttCommandTopic + "/lcdupdate") || strTopic == (mqttGroupCommandTopic + "/lcdupdate"))
-  { // '[...]/device/command/lcdupdate' -m 'http://192.168.0.10/local/HASwitchPlate.tft' == nextionStartOtaDownload("http://192.168.0.10/local/HASwitchPlate.tft")
-    if (strPayload == "")
-    {
-      nextionStartOtaDownload(lcdFirmwareUrl);
+      byte inByte = Serial.read();
+      if (inByte == 0x5)
+      {
+        otaSuccessVal = true;
+        break;
+      }
     }
     else
     {
-      nextionStartOtaDownload(strPayload);
+      delay(1);
     }
   }
-  else if (strTopic == (mqttCommandTopic + "/espupdate") || strTopic == (mqttGroupCommandTopic + "/espupdate"))
-  { // '[...]/device/command/espupdate' -m 'http://192.168.0.10/local/HASwitchPlate.ino.d1_mini.bin' == espStartOta("http://192.168.0.10/local/HASwitchPlate.ino.d1_mini.bin")
-    if (strPayload == "")
-    {
-      espStartOta(espFirmwareUrl);
-    }
-    else
-    {
-      espStartOta(strPayload);
-    }
-  }
-  else if (strTopic == (mqttCommandTopic + "/reboot") || strTopic == (mqttGroupCommandTopic + "/reboot"))
-  { // '[...]/device/command/reboot' == reboot microcontroller)
-    debugPrintln(F("MQTT: Rebooting device"));
-    espReset();
-  }
-  else if (strTopic == (mqttCommandTopic + "/lcdreboot") || strTopic == (mqttGroupCommandTopic + "/lcdreboot"))
-  { // '[...]/device/command/lcdreboot' == reboot LCD panel)
-    debugPrintln(F("MQTT: Rebooting LCD"));
-    nextionReset();
-  }
-  else if (strTopic == (mqttCommandTopic + "/factoryreset") || strTopic == (mqttGroupCommandTopic + "/factoryreset"))
-  { // '[...]/device/command/factoryreset' == clear all saved settings)
-    configClearSaved();
-  }
-  else if (strTopic == (mqttCommandTopic + "/beep") || strTopic == (mqttGroupCommandTopic + "/beep"))
-  { // '[...]/device/command/beep')
-    String mqqtvar1 = getSubtringField(strPayload, ',', 0);
-    String mqqtvar2 = getSubtringField(strPayload, ',', 1);
-    String mqqtvar3 = getSubtringField(strPayload, ',', 2);
-
-    beepOnTime = mqqtvar1.toInt();
-    beepOffTime = mqqtvar2.toInt();
-    beepCounter = mqqtvar3.toInt();
-  }
-  else if (strTopic.startsWith(mqttCommandTopic) && (strPayload == ""))
-  { // '[...]/device/command/p[1].b[4].txt' -m '' == nextionGetAttr("p[1].b[4].txt")
-    String subTopic = strTopic.substring(mqttCommandTopic.length() + 1);
-    mqttGetSubtopic = "/" + subTopic;
-    nextionGetAttr(subTopic);
-  }
-  else if (strTopic.startsWith(mqttGroupCommandTopic) && (strPayload == ""))
-  { // '[...]/group/command/p[1].b[4].txt' -m '' == nextionGetAttr("p[1].b[4].txt")
-    String subTopic = strTopic.substring(mqttGroupCommandTopic.length() + 1);
-    mqttGetSubtopic = "/" + subTopic;
-    nextionGetAttr(subTopic);
-  }
-  else if (strTopic.startsWith(mqttCommandTopic))
-  { // '[...]/device/command/p[1].b[4].txt' -m '"Lights On"' == nextionSetAttr("p[1].b[4].txt", "\"Lights On\"")
-    String subTopic = strTopic.substring(mqttCommandTopic.length() + 1);
-    nextionSetAttr(subTopic, strPayload);
-  }
-  else if (strTopic.startsWith(mqttGroupCommandTopic))
-  { // '[...]/group/command/p[1].b[4].txt' -m '"Lights On"' == nextionSetAttr("p[1].b[4].txt", "\"Lights On\"")
-    String subTopic = strTopic.substring(mqttGroupCommandTopic.length() + 1);
-    nextionSetAttr(subTopic, strPayload);
-  }
-  else if (strTopic == mqttLightBrightCommandTopic)
-  { // change the brightness from the light topic
-    int panelDim = map(strPayload.toInt(), 0, 255, 0, 100);
-    nextionSetAttr("dim", String(panelDim));
-    nextionSendCmd("dims=dim");
-    mqttClient.publish(mqttLightBrightStateTopic, strPayload);
-  }
-  else if (strTopic == mqttLightCommandTopic && strPayload == "OFF")
-  { // set the panel dim OFF from the light topic, saving current dim level first
-    nextionSendCmd("dims=dim");
-    nextionSetAttr("dim", "0");
-    mqttClient.publish(mqttLightStateTopic, "OFF");
-  }
-  else if (strTopic == mqttLightCommandTopic && strPayload == "ON")
-  { // set the panel dim ON from the light topic, restoring saved dim level
-    nextionSendCmd("dim=dims");
-    mqttClient.publish(mqttLightStateTopic, "ON");
-  }
-  else if (strTopic == mqttStatusTopic && strPayload == "OFF")
-  { // catch a dangling LWT from a previous connection if it appears
-    mqttClient.publish(mqttStatusTopic, "ON");
-  }
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-void nextionSetSpeed()
-{
-  debugPrintln(F("HMI: No Nextion response, attempting 9600bps connection"));
-  Serial1.begin(9600);
-  Serial1.write(nextionSuffix, sizeof(nextionSuffix));
-  Serial1.print("bauds=115200");
-  Serial1.write(nextionSuffix, sizeof(nextionSuffix));
-  Serial1.flush();
-  Serial1.begin(115200);
+  return otaSuccessVal;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1129,73 +1185,50 @@ void nextionConnect()
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-void configSaveCallback()
-{ // Callback notifying us of the need to save config
-  debugPrintln(F("SPIFFS: Configuration changed, flagging for save"));
-  shouldSaveConfig = true;
+void nextionSetSpeed()
+{
+  debugPrintln(F("HMI: No Nextion response, attempting 9600bps connection"));
+  Serial1.begin(9600);
+  Serial1.write(nextionSuffix, sizeof(nextionSuffix));
+  Serial1.print("bauds=115200");
+  Serial1.write(nextionSuffix, sizeof(nextionSuffix));
+  Serial1.flush();
+  Serial1.begin(115200);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-void espWifiConfigCallback(WiFiManager *myWiFiManager)
-{ // Notify the user that we're entering config mode
-  debugPrintln(F("WIFI: Failed to connect to assigned AP, entering config mode"));
-  while (millis() < 800)
-  { // for factory-reset system this will be called before display is responsive. give it a second.
-    delay(10);
-  }
-  nextionSendCmd("page 0");
-  nextionSetAttr("p[0].b[1].font", "6");
-  nextionSetAttr("p[0].b[1].txt", "\" HASP WiFi Setup\\r AP: " + String(wifiConfigAP) + "\\rPassword: " + String(wifiConfigPass) + "\\r\\r\\r\\r\\r\\r\\r  http://192.168.4.1\"");
-  nextionSendCmd("vis 3,1");
-}
+void nextionReset()
+{
+  debugPrintln(F("HMI: Rebooting LCD"));
+  digitalWrite(nextionResetPin, LOW);
+  Serial1.print("rest");
+  Serial1.write(nextionSuffix, sizeof(nextionSuffix));
+  Serial1.flush();
+  delay(100);
+  digitalWrite(nextionResetPin, HIGH);
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-void configSave()
-{ // Save the custom parameters to config.json
-  nextionSetAttr("p[0].b[1].txt", "\"Saving\\rconfig\"");
-  debugPrintln(F("SPIFFS: Saving config"));
-  DynamicJsonDocument jsonConfigValues(1024);
-  jsonConfigValues["mqttServer"] = mqttServer;
-  jsonConfigValues["mqttPort"] = mqttPort;
-  jsonConfigValues["mqttUser"] = mqttUser;
-  jsonConfigValues["mqttPassword"] = mqttPassword;
-  jsonConfigValues["haspNode"] = haspNode;
-  jsonConfigValues["groupName"] = groupName;
-  jsonConfigValues["configUser"] = configUser;
-  jsonConfigValues["configPassword"] = configPassword;
-  jsonConfigValues["motionPinConfig"] = motionPinConfig;
-  jsonConfigValues["debugSerialEnabled"] = debugSerialEnabled;
-  jsonConfigValues["debugTelnetEnabled"] = debugTelnetEnabled;
-  jsonConfigValues["mdnsEnabled"] = mdnsEnabled;
-  jsonConfigValues["beepEnabled"] = beepEnabled;
+  unsigned long lcdResetTimer = millis();
+  const unsigned long lcdResetTimeout = 5000;
 
-  debugPrintln(String(F("SPIFFS: mqttServer = ")) + String(mqttServer));
-  debugPrintln(String(F("SPIFFS: mqttPort = ")) + String(mqttPort));
-  debugPrintln(String(F("SPIFFS: mqttUser = ")) + String(mqttUser));
-  debugPrintln(String(F("SPIFFS: mqttPassword = ")) + String(mqttPassword));
-  debugPrintln(String(F("SPIFFS: haspNode = ")) + String(haspNode));
-  debugPrintln(String(F("SPIFFS: groupName = ")) + String(groupName));
-  debugPrintln(String(F("SPIFFS: configUser = ")) + String(configUser));
-  debugPrintln(String(F("SPIFFS: configPassword = ")) + String(configPassword));
-  debugPrintln(String(F("SPIFFS: motionPinConfig = ")) + String(motionPinConfig));
-  debugPrintln(String(F("SPIFFS: debugSerialEnabled = ")) + String(debugSerialEnabled));
-  debugPrintln(String(F("SPIFFS: debugTelnetEnabled = ")) + String(debugTelnetEnabled));
-  debugPrintln(String(F("SPIFFS: mdnsEnabled = ")) + String(mdnsEnabled));
-  debugPrintln(String(F("SPIFFS: beepEnabled = ")) + String(beepEnabled));
-
-  File configFile = SPIFFS.open("/config.json", "w");
-  if (!configFile)
+  lcdConnected = false;
+  while (!lcdConnected && (millis() < (lcdResetTimer + lcdResetTimeout)))
   {
-    debugPrintln(F("SPIFFS: Failed to open config file for writing"));
+    nextionHandleInput();
+  }
+  if (lcdConnected)
+  {
+    debugPrintln(F("HMI: Rebooting LCD completed"));
+    if (nextionActivePage)
+    {
+      nextionSendCmd("page " + String(nextionActivePage));
+    }
   }
   else
   {
-    serializeJson(jsonConfigValues, configFile);
-    configFile.close();
+    debugPrintln(F("ERROR: Rebooting LCD completed, but LCD is not responding."));
   }
-  shouldSaveConfig = false;
+  mqttClient.publish(mqttStatusTopic, "OFF");
 }
-
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 void espWifiSetup()
@@ -1315,6 +1348,19 @@ void espWifiReconnect()
   }
 }
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
+void espWifiConfigCallback(WiFiManager *myWiFiManager)
+{ // Notify the user that we're entering config mode
+  debugPrintln(F("WIFI: Failed to connect to assigned AP, entering config mode"));
+  while (millis() < 800)
+  { // for factory-reset system this will be called before display is responsive. give it a second.
+    delay(10);
+  }
+  nextionSendCmd("page 0");
+  nextionSetAttr("p[0].b[1].font", "6");
+  nextionSetAttr("p[0].b[1].txt", "\" HASP WiFi Setup\\r AP: " + String(wifiConfigAP) + "\\rPassword: " + String(wifiConfigPass) + "\\r\\r\\r\\r\\r\\r\\r  http://192.168.4.1\"");
+  nextionSendCmd("vis 3,1");
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 void espSetupOta()
@@ -1357,6 +1403,49 @@ void espSetupOta()
   debugPrintln(F("ESP OTA: Over the Air firmware update ready"));
 }
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
+void espStartOta(String espOtaUrl)
+{ // Update ESP firmware from HTTP
+  nextionSendCmd("page 0");
+  nextionSetAttr("p[0].b[1].txt", "\"HTTP update\\rstarting...\"");
+  WiFiUDP::stopAll(); // Keep mDNS responder from breaking things
+
+  t_httpUpdate_return returnCode = ESPhttpUpdate.update(wifiClient, espOtaUrl);
+  switch (returnCode)
+  {
+  case HTTP_UPDATE_FAILED:
+    debugPrintln("ESPFW: HTTP_UPDATE_FAILED error " + String(ESPhttpUpdate.getLastError()) + " " + ESPhttpUpdate.getLastErrorString());
+    nextionSetAttr("p[0].b[1].txt", "\"HTTP Update\\rFAILED\"");
+    break;
+
+  case HTTP_UPDATE_NO_UPDATES:
+    debugPrintln(F("ESPFW: HTTP_UPDATE_NO_UPDATES"));
+    nextionSetAttr("p[0].b[1].txt", "\"HTTP Update\\rNo update\"");
+    break;
+
+  case HTTP_UPDATE_OK:
+    debugPrintln(F("ESPFW: HTTP_UPDATE_OK"));
+    nextionSetAttr("p[0].b[1].txt", "\"HTTP Update\\rcomplete!\\r\\rRestarting.\"");
+    espReset();
+  }
+  delay(5000);
+  nextionSendCmd("page " + String(nextionActivePage));
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+void espReset()
+{
+  debugPrintln(F("RESET: HASP reset"));
+  if (mqttClient.connected())
+  {
+    mqttClient.publish(mqttStatusTopic, "OFF", true, 1);
+    mqttClient.publish(mqttSensorTopic, "{\"status\": \"unavailable\"}", true, 1);
+    mqttClient.disconnect();
+  }
+  nextionReset();
+  ESP.reset();
+  delay(5000);
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 void configRead()
@@ -1483,6 +1572,81 @@ void configRead()
   }
 }
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
+void configSaveCallback()
+{ // Callback notifying us of the need to save config
+  debugPrintln(F("SPIFFS: Configuration changed, flagging for save"));
+  shouldSaveConfig = true;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+void configSave()
+{ // Save the custom parameters to config.json
+  nextionSetAttr("p[0].b[1].txt", "\"Saving\\rconfig\"");
+  debugPrintln(F("SPIFFS: Saving config"));
+  DynamicJsonDocument jsonConfigValues(1024);
+  jsonConfigValues["mqttServer"] = mqttServer;
+  jsonConfigValues["mqttPort"] = mqttPort;
+  jsonConfigValues["mqttUser"] = mqttUser;
+  jsonConfigValues["mqttPassword"] = mqttPassword;
+  jsonConfigValues["haspNode"] = haspNode;
+  jsonConfigValues["groupName"] = groupName;
+  jsonConfigValues["configUser"] = configUser;
+  jsonConfigValues["configPassword"] = configPassword;
+  jsonConfigValues["motionPinConfig"] = motionPinConfig;
+  jsonConfigValues["debugSerialEnabled"] = debugSerialEnabled;
+  jsonConfigValues["debugTelnetEnabled"] = debugTelnetEnabled;
+  jsonConfigValues["mdnsEnabled"] = mdnsEnabled;
+  jsonConfigValues["beepEnabled"] = beepEnabled;
+
+  debugPrintln(String(F("SPIFFS: mqttServer = ")) + String(mqttServer));
+  debugPrintln(String(F("SPIFFS: mqttPort = ")) + String(mqttPort));
+  debugPrintln(String(F("SPIFFS: mqttUser = ")) + String(mqttUser));
+  debugPrintln(String(F("SPIFFS: mqttPassword = ")) + String(mqttPassword));
+  debugPrintln(String(F("SPIFFS: haspNode = ")) + String(haspNode));
+  debugPrintln(String(F("SPIFFS: groupName = ")) + String(groupName));
+  debugPrintln(String(F("SPIFFS: configUser = ")) + String(configUser));
+  debugPrintln(String(F("SPIFFS: configPassword = ")) + String(configPassword));
+  debugPrintln(String(F("SPIFFS: motionPinConfig = ")) + String(motionPinConfig));
+  debugPrintln(String(F("SPIFFS: debugSerialEnabled = ")) + String(debugSerialEnabled));
+  debugPrintln(String(F("SPIFFS: debugTelnetEnabled = ")) + String(debugTelnetEnabled));
+  debugPrintln(String(F("SPIFFS: mdnsEnabled = ")) + String(mdnsEnabled));
+  debugPrintln(String(F("SPIFFS: beepEnabled = ")) + String(beepEnabled));
+
+  File configFile = SPIFFS.open("/config.json", "w");
+  if (!configFile)
+  {
+    debugPrintln(F("SPIFFS: Failed to open config file for writing"));
+  }
+  else
+  {
+    serializeJson(jsonConfigValues, configFile);
+    configFile.close();
+  }
+  shouldSaveConfig = false;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+void configClearSaved()
+{ // Clear out all local storage
+  nextionSetAttr("dims", "100");
+  nextionSendCmd("page 0");
+  nextionSetAttr("p[0].b[1].txt", "\"Resetting\\rsystem...\"");
+  debugPrintln(F("RESET: Formatting SPIFFS"));
+  SPIFFS.format();
+  debugPrintln(F("RESET: Clearing WiFiManager settings..."));
+  WiFiManager wifiManager;
+  wifiManager.resetSettings();
+  EEPROM.begin(512);
+  debugPrintln(F("Clearing EEPROM..."));
+  for (uint16_t i = 0; i < EEPROM.length(); i++)
+  {
+    EEPROM.write(i, 0);
+  }
+  nextionSetAttr("p[0].b[1].txt", "\"Rebooting\\rsystem...\"");
+  debugPrintln(F("RESET: Rebooting device"));
+  espReset();
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 void webHandleNotFound()
@@ -2467,6 +2631,73 @@ void handleTelnetClient()
   }
 }
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
+void debugPrintln(String debugText)
+{ // Debug output line of text to our debug targets
+  String debugTimeText = "[+" + String(float(millis()) / 1000, 3) + "s] " + debugText;
+  Serial.println(debugTimeText);
+  if (debugSerialEnabled)
+  {
+    SoftwareSerial debugSerial(-1, 1); // -1==nc for RX, 1==TX pin
+    debugSerial.begin(115200);
+    debugSerial.println(debugTimeText);
+    debugSerial.flush();
+  }
+  if (debugTelnetEnabled)
+  {
+    if (telnetClient.connected())
+    {
+      telnetClient.println(debugTimeText);
+    }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+void debugPrint(String debugText)
+{ // Debug output single character to our debug targets (DON'T USE THIS!)
+  // Try to avoid using this function if at all possible.  When connected to telnet, printing each
+  // character requires a full TCP round-trip + acknowledgement back and execution halts while this
+  // happens.  Far better to put everything into a line and send it all out in one packet using
+  // debugPrintln.
+  if (debugSerialEnabled)
+    Serial.print(debugText);
+  {
+    SoftwareSerial debugSerial(-1, 1); // -1==nc for RX, 1==TX pin
+    debugSerial.begin(115200);
+    debugSerial.print(debugText);
+    debugSerial.flush();
+  }
+  if (debugTelnetEnabled)
+  {
+    if (telnetClient.connected())
+    {
+      telnetClient.print(debugText);
+    }
+  }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+// Submitted by benmprojects to handle "beep" commands. Split
+// incoming String by separator, return selected field as String
+// Original source: https://arduino.stackexchange.com/a/1237
+String getSubtringField(String data, char separator, int index)
+{
+  int found = 0;
+  int strIndex[] = {0, -1};
+  int maxIndex = data.length();
+
+  for (int i = 0; i <= maxIndex && found <= index; i++)
+  {
+    if (data.charAt(i) == separator || i == maxIndex)
+    {
+      found++;
+      strIndex[0] = strIndex[1] + 1;
+      strIndex[1] = (i == maxIndex) ? i + 1 : i;
+    }
+  }
+  return found > index ? data.substring(strIndex[0], strIndex[1]) : "";
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 String printHex8(byte *data, uint8_t length)
 { // returns input bytes as printable hex values in the format 01 23 FF
@@ -2488,191 +2719,6 @@ String printHex8(byte *data, uint8_t length)
   hex8String.toUpperCase();
   return hex8String;
 }
-////////////////////////////////////////////////////////////////////////////////////////////////////
-void setup()
-{ // System setup
-  pinMode(nextionResetPin, OUTPUT);
-  digitalWrite(nextionResetPin, HIGH);
-  Serial.begin(115200);  // Serial - LCD RX (after swap), debug TX
-  Serial1.begin(115200); // Serial1 - LCD TX, no RX
-  Serial.swap();
 
-  debugPrintln(String(F("SYSTEM: Starting HASwitchPlate v")) + String(haspVersion));
-  debugPrintln(String(F("SYSTEM: Last reset reason: ")) + String(ESP.getResetInfo()));
-
-  configRead(); // Check filesystem for a saved config.json
-
-  while (!lcdConnected && (millis() < 5000))
-  { // Wait up to 5 seconds for serial input from LCD
-    nextionHandleInput();
-  }
-  if (lcdConnected)
-  {
-    debugPrintln(F("HMI: LCD responding, continuing program load"));
-    nextionSendCmd("connect");
-  }
-  else
-  {
-    debugPrintln(F("HMI: LCD not responding, continuing program load"));
-  }
-
-  espWifiSetup(); // Start up networking
-
-  if (mdnsEnabled)
-  { // Setup mDNS service discovery if enabled
-    hMDNSService = MDNS.addService(haspNode, "http", "tcp", 80);
-    if (debugTelnetEnabled)
-    {
-      MDNS.addService(haspNode, "telnet", "tcp", 23);
-    }
-    MDNS.addServiceTxt(hMDNSService, "app_name", "HASwitchPlate");
-    MDNS.addServiceTxt(hMDNSService, "app_version", String(haspVersion).c_str());
-    MDNS.update();
-  }
-
-  if ((configPassword[0] != '\0') && (configUser[0] != '\0'))
-  { // Start the webserver with our assigned password if it's been configured...
-    httpOTAUpdate.setup(&webServer, "/update", configUser, configPassword);
-  }
-  else
-  { // or without a password if not
-    httpOTAUpdate.setup(&webServer, "/update");
-  }
-  webServer.on("/", webHandleRoot);
-  webServer.on("/saveConfig", webHandleSaveConfig);
-  webServer.on("/resetConfig", webHandleResetConfig);
-  webServer.on("/resetBacklight", webHandleResetBacklight);
-  webServer.on("/firmware", webHandleFirmware);
-  webServer.on("/espfirmware", webHandleEspFirmware);
-  webServer.on("/lcdupload", HTTP_POST, []() { webServer.send(200); }, webHandleLcdUpload);
-  webServer.on("/tftFileSize", webHandleTftFileSize);
-  webServer.on("/lcddownload", webHandleLcdDownload);
-  webServer.on("/lcdOtaSuccess", webHandleLcdUpdateSuccess);
-  webServer.on("/lcdOtaFailure", webHandleLcdUpdateFailure);
-  webServer.on("/reboot", webHandleReboot);
-  webServer.onNotFound(webHandleNotFound);
-  webServer.begin();
-  debugPrintln(String(F("HTTP: Server started @ http://")) + WiFi.localIP().toString());
-
-  espSetupOta(); // Start OTA firmware update
-
-  mqttClient.begin(mqttServer, atoi(mqttPort), wifiMQTTClient); // Create MQTT service object
-  mqttClient.onMessage(mqttCallback);                           // Setup MQTT callback function
-  mqttConnect();                                                // Connect to MQTT
-
-  motionSetup(); // Setup motion sensor if configured
-
-  if (beepEnabled)
-  { // Setup beep/tactile if configured
-    beepPin = 4;
-    pinMode(beepPin, OUTPUT);
-  }
-
-  if (debugTelnetEnabled)
-  { // Setup telnet server for remote debug output
-    telnetServer.setNoDelay(true);
-    telnetServer.begin();
-    debugPrintln(String(F("TELNET: debug server enabled at telnet:")) + WiFi.localIP().toString());
-  }
-
-  debugPrintln(F("SYSTEM: System init complete."));
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-void loop()
-{ // Main execution loop
-
-  if (nextionHandleInput())
-  { // Process user input from HMI
-    nextionProcessInput();
-  }
-
-  while ((WiFi.status() != WL_CONNECTED) || (WiFi.localIP().toString() == "0.0.0.0"))
-  { // Check WiFi is connected and that we have a valid IP, retry until we do.
-    if (WiFi.status() == WL_CONNECTED)
-    { // If we're currently connected, disconnect so we can try again
-      WiFi.disconnect();
-    }
-    espWifiReconnect();
-  }
-
-  if (!mqttClient.connected())
-  { // Check MQTT connection
-    debugPrintln("MQTT: not connected, connecting.");
-    mqttConnect();
-  }
-
-  mqttClient.loop();        // MQTT client loop
-  ArduinoOTA.handle();      // Arduino OTA loop
-  webServer.handleClient(); // webServer loop
-  if (mdnsEnabled)
-  {
-    MDNS.update();
-  }
-
-  if ((lcdVersion < 1) && (millis() <= (nextionRetryMax * nextionCheckInterval)))
-  { // Attempt to connect to LCD panel to collect model and version info during startup
-    nextionConnect();
-  }
-  else if ((lcdVersion > 0) && (millis() <= (nextionRetryMax * nextionCheckInterval)) && !startupCompleteFlag)
-  { // We have LCD info, so trigger an update check + report
-    if (updateCheck())
-    { // Send a status update if the update check worked
-      mqttStatusUpdate();
-      startupCompleteFlag = true;
-    }
-  }
-  else if ((millis() > (nextionRetryMax * nextionCheckInterval)) && !startupCompleteFlag)
-  { // We still don't have LCD info so go ahead and run the rest of the checks once at startup anyway
-    updateCheck();
-    mqttStatusUpdate();
-    startupCompleteFlag = true;
-  }
-
-  if ((millis() - statusUpdateTimer) >= statusUpdateInterval)
-  { // Run periodic status update
-    statusUpdateTimer = millis();
-    mqttStatusUpdate();
-  }
-
-  if ((millis() - updateCheckTimer) >= updateCheckInterval)
-  { // Run periodic update check
-    updateCheckTimer = millis();
-    if (updateCheck())
-    { // Send a status update if the update check worked
-      mqttStatusUpdate();
-    }
-  }
-
-  if (motionEnabled)
-  { // Check on our motion sensor
-    motionUpdate();
-  }
-
-  if (debugTelnetEnabled)
-  {
-    handleTelnetClient(); // telnetClient loop
-  }
-
-  if (beepEnabled)
-  { // Process Beeps
-    if ((beepState == true) && (millis() - beepPrevMillis >= beepOnTime) && ((beepCounter > 0)))
-    {
-      beepState = false;         // Turn it off
-      beepPrevMillis = millis(); // Remember the time
-      analogWrite(beepPin, 254); // start beep for beepOnTime
-      if (beepCounter > 0)
-      { // Update the beep counter.
-        beepCounter--;
-      }
-    }
-    else if ((beepState == false) && (millis() - beepPrevMillis >= beepOffTime) && ((beepCounter >= 0)))
-    {
-      beepState = true;          // turn it on
-      beepPrevMillis = millis(); // Remember the time
-      analogWrite(beepPin, 0);   // stop beep for beepOffTime
-    }
-  }
-}
 
 
