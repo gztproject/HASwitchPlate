@@ -1,20 +1,24 @@
 #ifndef MOTION_H
 #define MOTION_H
 
+#include <Arduino.h>
+#include <config.h>
+#include <hasp.h>
+
+#define LATCH_TIMEOUT 30000 // Latch time for motion sensor
+#define BUFFER_TIMEOUT 1000 // Latch time for motion sensor
+
 class motion
 {
 public:
-    motion(uint8_t motionPin);
-    void setup();
-    void update();
+    static bool enabled; // Motion sensor is enabled
+    static bool active;  // Motion is being detected
 
-    bool enabled = false; // Motion sensor is enabled
-    bool active = false;  // Motion is being detected
+    static void setup();
+    static void update();
 
 private:
-    uint8_t pin = 0;                          // GPIO input pin for motion sensor if connected and enabled
-    const unsigned long LatchTimeout = 30000; // Latch time for motion sensor
-    const unsigned long BufferTimeout = 1000; // Latch time for motion sensor
+    motion(){};
 };
 
 #endif

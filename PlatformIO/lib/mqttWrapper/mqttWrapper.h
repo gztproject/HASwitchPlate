@@ -2,41 +2,41 @@
 #define MQTT_WRAPPER_H
 
 #include <Arduino.h>
+#include <hasp.h>
+#include <web.h>
+
 #include <MQTT.h>
 #include <ESP8266WiFi.h>
 
 class mqttWrapper
 {
 public:
-    mqttWrapper(const char *mqttServer, const char *mqttPort, const char *mqttUser, const char *mqttPassword, uint16_t maxPacketSize = 4096);
-    void begin();
-    void connect();
-    void statusUpdate();
-    void callback(String &strTopic, String &strPayload);
+    static String stateTopic;              // MQTT topic for outgoing panel interactions
+    static String stateJSONTopic;          // MQTT topic for outgoing panel interactions in JSON format
+    static String commandTopic;            // MQTT topic for incoming panel commands
+    static String groupCommandTopic;       // MQTT topic for incoming group panel commands
+    static String statusTopic;             // MQTT topic for publishing device connectivity state
+    static String sensorTopic;             // MQTT topic for publishing device information in JSON format
+    static String lightCommandTopic;       // MQTT topic for incoming panel backlight on/off commands
+    static String beepCommandTopic;        // MQTT topic for error beep
+    static String lightStateTopic;         // MQTT topic for outgoing panel backlight on/off state
+    static String lightBrightCommandTopic; // MQTT topic for incoming panel backlight dimmer commands
+    static String lightBrightStateTopic;   // MQTT topic for outgoing panel backlight dimmer state
+    static String motionStateTopic;        // MQTT topic for outgoing motion sensor state
 
-private:    
-    String mqttClientId;                     // Auto-generated MQTT ClientID
-    String mqttGetSubtopic;                  // MQTT subtopic for incoming commands requesting .val
-    String mqttGetSubtopicJSON;              // MQTT object buffer for JSON status when requesting .val
-    String mqttStateTopic;                   // MQTT topic for outgoing panel interactions
-    String mqttStateJSONTopic;               // MQTT topic for outgoing panel interactions in JSON format
-    String mqttCommandTopic;                 // MQTT topic for incoming panel commands
-    String mqttGroupCommandTopic;            // MQTT topic for incoming group panel commands
-    String mqttStatusTopic;                  // MQTT topic for publishing device connectivity state
-    String mqttSensorTopic;                  // MQTT topic for publishing device information in JSON format
-    String mqttLightCommandTopic;            // MQTT topic for incoming panel backlight on/off commands
-    String mqttBeepCommandTopic;             // MQTT topic for error beep
-    String mqttLightStateTopic;              // MQTT topic for outgoing panel backlight on/off state
-    String mqttLightBrightCommandTopic;      // MQTT topic for incoming panel backlight dimmer commands
-    String mqttLightBrightStateTopic;        // MQTT topic for outgoing panel backlight dimmer state
-    String mqttMotionStateTopic;             // MQTT topic for outgoing motion sensor state
-    const char *server;
-    const char *port;
-    const char *user;
-    const char *password;
+    static void begin();
+    static void connect();
+    static void statusUpdate();
+    static MQTTClient getClient();
 
-    WiFiClient wifiMQTTClient;
-    MQTTClient mqttClient;
+private:
+    static MQTTClient client;
+    static String mqttClientId;        // Auto-generated MQTT ClientID
+    static String mqttGetSubtopic;     // MQTT subtopic for incoming commands requesting .val
+    static String mqttGetSubtopicJSON; // MQTT object buffer for JSON status when requesting .val
+
+    static void callback(String &strTopic, String &strPayload);
+    mqttWrapper(){};
 };
 
 #endif

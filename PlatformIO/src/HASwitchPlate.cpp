@@ -27,107 +27,47 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 #include <Arduino.h>
 #include <config.h>
-#include <esp.h>
+#include <hasp.h>
 #include <motion.h>
 #include <mqttWrapper.h>
 #include <nextion.h>
 #include <persistance.h>
-//#include <telnet.h>
+#include <telnet.h>
 #include <web.h>
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-char wifiSSID[32] = WIFI_SSID; 
-char wifiPass[64] = WIFI_PASS; 
-
-char haspNode[16] = HASP_NODE;
-char groupName[16] = GROUP_NAME;
-char configUser[32] = WEB_USER;
-char configPassword[32] = WEB_PASS;
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
-#include <FS.h>
 
 #include <ESP8266mDNS.h>
-#include <WiFiUdp.h>
-#include <ArduinoOTA.h>
+
 #include <DNSServer.h>
 #include <ESP8266HTTPClient.h>
-#include <ESP8266WebServer.h>
 #include <ESP8266httpUpdate.h>
 #include <ESP8266HTTPUpdateServer.h>
-
-#include <ArduinoJson.h>
-
 #include <SoftwareSerial.h>
 
-mqttWrapper mqtt(MQTT_SRV, MQTT_PORT, MQTT_USER, MQTT_PASS, MQTT_MAX_PACKET_SIZE);
-nextion nextion();
 
-motion motion(MOTION_PIN);
 
-const float haspVersion = 0.40;                     // Current HASP software release version
+                     
 
-const char wifiConfigPass[9] = "hasplate";          // First-time config WPA2 password
-const char wifiConfigAP[14] = "HASwitchPlate";      // First-time config SSID
-bool shouldSaveConfig = false;                      // Flag to save json config to SPIFFS
-bool nextionReportPage0 = false;                    // If false, don't report page 0 sendme
 const unsigned long updateCheckInterval = 43200000; // Time in msec between update checks (12 hours)
 unsigned long updateCheckTimer = 0;                 // Timer for update check
 const unsigned long nextionCheckInterval = 5000;    // Time in msec between nextion connection checks
 unsigned long nextionCheckTimer = 0;                // Timer for nextion connection checks
 unsigned int nextionRetryMax = 5;                   // Attempt to connect to panel this many times
-bool updateEspAvailable = false;                    // Flag for update check to report new ESP FW version
-float updateEspAvailableVersion;                    // Float to hold the new ESP FW version number
-bool updateLcdAvailable = false;                    // Flag for update check to report new LCD FW version
-bool debugSerialEnabled = true;                     // Enable USB serial debug output
-bool debugTelnetEnabled = false;                    // Enable telnet debug output
-bool debugSerialD8Enabled = true;                   // Enable hardware serial debug output on pin D8
-const unsigned long telnetInputMax = 128;           // Size of user input buffer for user telnet session
 
-bool mdnsEnabled = true;                            // mDNS enabled
-bool beepEnabled = false;                           // Keypress beep enabled
-unsigned long beepPrevMillis = 0;                   // will store last time beep was updated
-unsigned long beepOnTime = 1000;                    // milliseconds of on-time for beep
-unsigned long beepOffTime = 1000;                   // milliseconds of off-time for beep
-boolean beepState;                                  // beep currently engaged
-unsigned int beepCounter;                           // Count the number of beeps
-byte beepPin;                                       // define beep pin output
 
-unsigned long lcdVersion = 0;                       // Int to hold current LCD FW version number
-unsigned long updateLcdAvailableVersion;            // Int to hold the new LCD FW version number
-bool lcdVersionQueryFlag = false;                   // Flag to set if we've queried lcdVersion
-const String lcdVersionQuery = "p[0].b[2].val";     // Object ID for lcdVersion in HMI
-bool startupCompleteFlag = false;                   // Startup process has completed
-const long statusUpdateInterval = 300000;           // Time in msec between publishing MQTT status updates (5 minutes)
-long statusUpdateTimer = 0;                         // Timer for update check
-const unsigned long connectTimeout = 300;           // Timeout for WiFi and MQTT connection attempts in seconds
-const unsigned long reConnectTimeout = 15;          // Timeout for WiFi reconnection attempts in seconds
-byte espMac[6];                                     // Byte array to store our MAC address
+bool startupCompleteFlag = false;               // Startup process has completed
+const long statusUpdateInterval = 300000;       // Time in msec between publishing MQTT status updates (5 minutes)
+long statusUpdateTimer = 0;                     // Timer for update check
 
-String nextionModel;                                // Record reported model number of LCD panel
-const byte nextionSuffix[] = {0xFF, 0xFF, 0xFF};    // Standard suffix for Nextion commands
-uint32_t tftFileSize = 0;                           // Filesize for TFT firmware upload
-uint8_t nextionResetPin = D6;                       // Pin for Nextion power rail switch (GPIO12/D6)
 
-WiFiClient wifiClient;
-
-ESP8266WebServer webServer(80);
 ESP8266HTTPUpdateServer httpOTAUpdate;
-WiFiServer telnetServer(23);
-WiFiClient telnetClient;
 MDNSResponder::hMDNSService hMDNSService;
 
 // Additional CSS style to match Hass theme
 const char HASP_STYLE[] = "<style>button{background-color:#03A9F4;}body{width:60%;margin:auto;}input:invalid{border:1px solid red;}input[type=checkbox]{width:20px;}</style>";
 // URL for auto-update "version.json"
 const char UPDATE_URL[] = "http://haswitchplate.com/update/version.json";
-// Default link to compiled Arduino firmware image
-String espFirmwareUrl = "http://haswitchplate.com/update/HASwitchPlate.ino.d1_mini.bin";
-// Default link to compiled Nextion firmware images
-String lcdFirmwareUrl = "http://haswitchplate.com/update/HASwitchPlate.tft";
-
-
-
 
 
 /**
@@ -137,101 +77,88 @@ String lcdFirmwareUrl = "http://haswitchplate.com/update/HASwitchPlate.tft";
 String getSubtringField(String data, char separator, int index);
 String printHex8(byte *data, uint8_t length);
 
-
 void setup()
-{ // System setup
-  pinMode(nextionResetPin, OUTPUT);
-  digitalWrite(nextionResetPin, HIGH);
+{
+  // System setup
+  nextion::begin();
+
   Serial.begin(115200);  // Serial - LCD RX (after swap), debug TX
   Serial1.begin(115200); // Serial1 - LCD TX, no RX
   Serial.swap();
 
-  debugPrintln(String(F("SYSTEM: Starting HASwitchPlate v")) + String(haspVersion));
-  debugPrintln(String(F("SYSTEM: Last reset reason: ")) + String(ESP.getResetInfo()));
+  hasp::debugPrintln(String(F("SYSTEM: Starting HASwitchPlate v")) + String(hasp::version));
+  hasp::debugPrintln(String(F("SYSTEM: Last reset reason: ")) + String(ESP.getResetInfo()));
 
-  configRead(); // Check filesystem for a saved config.json
+  persistance::read(); // Check filesystem for a saved config.json
 
-  while (!lcdConnected && (millis() < 5000))
+  while (!nextion::lcdConnected && (millis() < 5000))
   { // Wait up to 5 seconds for serial input from LCD
-    nextionHandleInput();
+    nextion::handleInput();
   }
-  if (lcdConnected)
+  if (nextion::lcdConnected)
   {
-    debugPrintln(F("HMI: LCD responding, continuing program load"));
-    nextionSendCmd("connect");
+    hasp::debugPrintln(F("HMI: LCD responding, continuing program load"));
+    nextion::sendCmd("connect");
   }
   else
   {
-    debugPrintln(F("HMI: LCD not responding, continuing program load"));
+    hasp::debugPrintln(F("HMI: LCD not responding, continuing program load"));
   }
 
-  espWifiSetup(); // Start up networking
+  hasp::wifiSetup(); // Start up networking
 
-  if (mdnsEnabled)
+  if (hasp::mdnsEnabled)
   { // Setup mDNS service discovery if enabled
-    hMDNSService = MDNS.addService(haspNode, "http", "tcp", 80);
-    if (debugTelnetEnabled)
+    hMDNSService = MDNS.addService(HASP_NODE, "http", "tcp", 80);
+    if (hasp::debugTelnetEnabled)
     {
-      MDNS.addService(haspNode, "telnet", "tcp", 23);
+      MDNS.addService(hasp::node, "telnet", "tcp", 23);
     }
     MDNS.addServiceTxt(hMDNSService, "app_name", "HASwitchPlate");
-    MDNS.addServiceTxt(hMDNSService, "app_version", String(haspVersion).c_str());
+    MDNS.addServiceTxt(hMDNSService, "app_version", String(hasp::version).c_str());
     MDNS.update();
   }
-
-  if ((configPassword[0] != '\0') && (configUser[0] != '\0'))
+  if ((WEB_PASS[0] != '\0') && (WEB_USER[0] != '\0'))
   { // Start the webserver with our assigned password if it's been configured...
-    httpOTAUpdate.setup(&webServer, "/update", configUser, configPassword);
+    httpOTAUpdate.setup(web::getServer(), "/update", WEB_USER, WEB_PASS);
   }
   else
   { // or without a password if not
-    httpOTAUpdate.setup(&webServer, "/update");
+    httpOTAUpdate.setup(web::getServer(), "/update");
   }
-  webServer.on("/", webHandleRoot);
-  webServer.on("/saveConfig", webHandleSaveConfig);
-  webServer.on("/resetConfig", webHandleResetConfig);
-  webServer.on("/resetBacklight", webHandleResetBacklight);
-  webServer.on("/firmware", webHandleFirmware);
-  webServer.on("/espfirmware", webHandleEspFirmware);
-  webServer.on("/lcdupload", HTTP_POST, []() { webServer.send(200); }, webHandleLcdUpload);
-  webServer.on("/tftFileSize", webHandleTftFileSize);
-  webServer.on("/lcddownload", webHandleLcdDownload);
-  webServer.on("/lcdOtaSuccess", webHandleLcdUpdateSuccess);
-  webServer.on("/lcdOtaFailure", webHandleLcdUpdateFailure);
-  webServer.on("/reboot", webHandleReboot);
-  webServer.onNotFound(webHandleNotFound);
-  webServer.begin();
-  debugPrintln(String(F("HTTP: Server started @ http://")) + WiFi.localIP().toString());
+  web::begin();
 
-  espSetupOta(); // Start OTA firmware update  
-  
-  mqtt.begin();
+  hasp::debugPrintln(String(F("HTTP: Server started @ http://")) + WiFi.localIP().toString());
 
-  motionSetup(); // Setup motion sensor if configured
+  hasp::setupOta(); // Start OTA firmware update
 
-  if (beepEnabled)
+  mqttWrapper::begin();
+
+  motion::setup(); // Setup motion sensor if configured
+
+  if (hasp::beepEnabled)
   { // Setup beep/tactile if configured
-    beepPin = 4;
-    pinMode(beepPin, OUTPUT);
+    hasp::beepPin = 4;
+    pinMode(hasp::beepPin, OUTPUT);
   }
 
-  if (debugTelnetEnabled)
+  if (hasp::debugTelnetEnabled)
   { // Setup telnet server for remote debug output
-    telnetServer.setNoDelay(true);
-    telnetServer.begin();
-    debugPrintln(String(F("TELNET: debug server enabled at telnet:")) + WiFi.localIP().toString());
+    telnet::getServer().setNoDelay(true);
+    telnet::getServer().begin();
+    hasp::debugPrintln(String(F("TELNET: debug server enabled at telnet:")) + WiFi.localIP().toString());
   }
 
-  debugPrintln(F("SYSTEM: System init complete."));
+  hasp::debugPrintln(F("SYSTEM: System init complete."));
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 void loop()
 { // Main execution loop
 
-  if (nextionHandleInput())
+  if (nextion::handleInput())
   { // Process user input from HMI
-    nextionProcessInput();
+    nextion::processInput();
   }
 
   while ((WiFi.status() != WL_CONNECTED) || (WiFi.localIP().toString() == "0.0.0.0"))
@@ -240,84 +167,84 @@ void loop()
     { // If we're currently connected, disconnect so we can try again
       WiFi.disconnect();
     }
-    espWifiReconnect();
+    hasp::wifiReconnect();
   }
 
-  if (!mqttClient.connected())
+  if (!mqttWrapper::getClient().connected())
   { // Check MQTT connection
-    debugPrintln("MQTT: not connected, connecting.");
-    mqttConnect();
+    hasp::debugPrintln("MQTT: not connected, connecting.");
+    mqttWrapper::connect();
   }
 
-  mqttClient.loop();        // MQTT client loop
+  mqttWrapper::getClient().loop();        // MQTT client loop
   ArduinoOTA.handle();      // Arduino OTA loop
-  webServer.handleClient(); // webServer loop
-  if (mdnsEnabled)
+  web::handleClient(); // webServer loop
+  if (hasp::mdnsEnabled)
   {
     MDNS.update();
   }
 
-  if ((lcdVersion < 1) && (millis() <= (nextionRetryMax * nextionCheckInterval)))
+  if ((nextion::lcdVersion < 1) && (millis() <= (nextionRetryMax * nextionCheckInterval)))
   { // Attempt to connect to LCD panel to collect model and version info during startup
-    nextionConnect();
+    nextion::connect();
   }
-  else if ((lcdVersion > 0) && (millis() <= (nextionRetryMax * nextionCheckInterval)) && !startupCompleteFlag)
+  else if ((nextion::lcdVersion > 0) && (millis() <= (nextionRetryMax * nextionCheckInterval)) && !startupCompleteFlag)
   { // We have LCD info, so trigger an update check + report
-    if (updateCheck())
+    if (hasp::updateCheck())
     { // Send a status update if the update check worked
-      mqttStatusUpdate();
+      mqttWrapper::statusUpdate();
       startupCompleteFlag = true;
     }
   }
   else if ((millis() > (nextionRetryMax * nextionCheckInterval)) && !startupCompleteFlag)
   { // We still don't have LCD info so go ahead and run the rest of the checks once at startup anyway
-    updateCheck();
-    mqttStatusUpdate();
+    hasp::updateCheck();
+    mqttWrapper::statusUpdate();
     startupCompleteFlag = true;
   }
 
   if ((millis() - statusUpdateTimer) >= statusUpdateInterval)
   { // Run periodic status update
     statusUpdateTimer = millis();
-    mqttStatusUpdate();
+    mqttWrapper::statusUpdate();
   }
 
   if ((millis() - updateCheckTimer) >= updateCheckInterval)
   { // Run periodic update check
     updateCheckTimer = millis();
-    if (updateCheck())
+    if (hasp::updateCheck())
     { // Send a status update if the update check worked
-      mqttStatusUpdate();
+      mqttWrapper::statusUpdate();
     }
   }
 
-  if (motionEnabled)
+  if (motion::enabled)
   { // Check on our motion sensor
-    motionUpdate();
+    motion::update();
   }
 
-  if (debugTelnetEnabled)
+  if (hasp::debugTelnetEnabled)
   {
-    handleTelnetClient(); // telnetClient loop
+    telnet::handleClient(); // telnetClient loop
   }
 
-  if (beepEnabled)
+  if (hasp::beepEnabled)
   { // Process Beeps
-    if ((beepState == true) && (millis() - beepPrevMillis >= beepOnTime) && ((beepCounter > 0)))
+    if ((hasp::beepState == true) && (millis() - hasp::beepPrevMillis >= hasp::beepOnTime) && ((hasp::beepCounter > 0)))
     {
-      beepState = false;         // Turn it off
-      beepPrevMillis = millis(); // Remember the time
-      analogWrite(beepPin, 254); // start beep for beepOnTime
-      if (beepCounter > 0)
+      hasp::beepState = false;         // Turn it off
+      hasp::beepPrevMillis = millis(); // Remember the time
+      analogWrite(hasp::beepPin, 254); // start beep for beepOnTime
+      if (hasp::beepCounter > 0)
       { // Update the beep counter.
-        beepCounter--;
+        hasp::beepCounter--;
       }
     }
-    else if ((beepState == false) && (millis() - beepPrevMillis >= beepOffTime) && ((beepCounter >= 0)))
+    else if ((hasp::beepState == false) && (millis() - hasp::beepPrevMillis >= hasp::beepOffTime) && ((hasp::beepCounter >= 0)))
     {
-      beepState = true;          // turn it on
-      beepPrevMillis = millis(); // Remember the time
-      analogWrite(beepPin, 0);   // stop beep for beepOffTime
+      hasp::beepState = true;          // turn it on
+      hasp::beepPrevMillis = millis(); // Remember the time
+      analogWrite(hasp::beepPin, 0);   // stop beep for beepOffTime
     }
   }
 }
@@ -368,6 +295,3 @@ String printHex8(byte *data, uint8_t length)
   hex8String.toUpperCase();
   return hex8String;
 }
-
-
-

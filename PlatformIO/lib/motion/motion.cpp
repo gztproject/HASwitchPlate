@@ -1,61 +1,50 @@
 #include <motion.h>
 
-motion::motion(uint8_t motionPin)
-{
-    pin = motionPin;
-}
+bool motion::enabled = false;
+bool motion::active = false;
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
 void motion::setup()
 {
-  if (strcmp(motionPinConfig, "D0") == 0)
+  if (MOTION_PIN == 0)
   {
-    motionEnabled = true;
-    motionPin = D0;
-    pinMode(motionPin, INPUT);
+    enabled = false;
+    return;
   }
-  else if (strcmp(motionPinConfig, "D1") == 0)
-  {
-    motionEnabled = true;
-    motionPin = D1;
-    pinMode(motionPin, INPUT);
-  }
-  else if (strcmp(motionPinConfig, "D2") == 0)
-  {
-    motionEnabled = true;
-    motionPin = D2;
-    pinMode(motionPin, INPUT);
-  }
+  enabled = true;
+  pinMode(MOTION_PIN, INPUT);
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
 void motion::update()
 {
+  if (!enabled)
+  {
+    return;
+  }
   static unsigned long motionLatchTimer = 0;         // Timer for motion sensor latch
   static unsigned long motionBufferTimer = millis(); // Timer for motion sensor buffer
-  static bool motionActiveBuffer = motionActive;
-  bool motionRead = digitalRead(motionPin);
+  static bool motionActiveBuffer = active;
+  bool motionRead = digitalRead(hasp::motionPin);
 
   if (motionRead != motionActiveBuffer)
   { // if we've changed state
     motionBufferTimer = millis();
     motionActiveBuffer = motionRead;
   }
-  else if (millis() > (motionBufferTimer + motionBufferTimeout))
+  else if (millis() > (motionBufferTimer + BUFFER_TIMEOUT))
   {
-    if ((motionActiveBuffer && !motionActive) && (millis() > (motionLatchTimer + motionLatchTimeout)))
+    if ((motionActiveBuffer && !active) && (millis() > (motionLatchTimer + LATCH_TIMEOUT)))
     {
       motionLatchTimer = millis();
-      mqttClient.publish(mqttMotionStateTopic, "ON");
-      motionActive = motionActiveBuffer;
-      debugPrintln("MOTION: Active");
+      mqttWrapper::getClient().publish(mqttWrapper::motionStateTopic, "ON");
+      active = motionActiveBuffer;
+      hasp::debugPrintln("MOTION: Active");
     }
-    else if ((!motionActiveBuffer && motionActive) && (millis() > (motionLatchTimer + motionLatchTimeout)))
+    else if ((!motionActiveBuffer && active) && (millis() > (motionLatchTimer + LATCH_TIMEOUT)))
     {
       motionLatchTimer = millis();
-      mqttClient.publish(mqttMotionStateTopic, "OFF");
-      motionActive = motionActiveBuffer;
-      debugPrintln("MOTION: Inactive");
+      mqttWrapper::getClient().publish(mqttWrapper::motionStateTopic, "OFF");
+      active = motionActiveBuffer;
+      hasp::debugPrintln("MOTION: Inactive");
     }
   }
 }

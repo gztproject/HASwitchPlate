@@ -1,69 +1,83 @@
 #include <nextion.h>
 
-nextion::nextion()
-{
+byte nextion::returnBuffer[128];  // Byte array to pass around data coming from the panel
+uint8_t nextion::returnIndex = 0; // Index for nextionReturnBuffer
+uint8_t nextion::activePage = 0;  // Track active LCD page
+bool nextion::lcdConnected = false;
+const byte suffix[] = {0xFF, 0xFF, 0xFF};
+uint32_t tftFileSize = 0;
 
+bool nextion::reportPage0 = false;
+
+unsigned long nextion::lcdVersion = 0;
+unsigned long nextion::updateLcdAvailableVersion;
+bool nextion::lcdVersionQueryFlag = false;
+const String nextion::lcdVersionQuery = "p[0].b[2].val"; 
+
+void nextion::begin()
+{
+  pinMode(RESET_PIN, OUTPUT);
+  digitalWrite(RESET_PIN, HIGH);
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-void nextionProcessInput()
+void nextion::processInput()
 { // Process incoming serial commands from the Nextion panel
   // Command reference: https://www.itead.cc/wiki/Nextion_Instruction_Set#Format_of_Device_Return_Data
   // tl;dr: command byte, command data, 0xFF 0xFF 0xFF
 
-  if (nextionReturnBuffer[0] == 0x65)
+  if (returnBuffer[0] == 0x65)
   { // Handle incoming touch command
     // 0x65+Page ID+Component ID+TouchEvent+End
     // Return this data when the touch event created by the user is pressed.
     // Definition of TouchEvent: Press Event 0x01, Release Event 0X00
     // Example: 0x65 0x00 0x02 0x01 0xFF 0xFF 0xFF
     // Meaning: Touch Event, Page 0, Object 2, Press
-    String nextionPage = String(nextionReturnBuffer[1]);
-    String nextionButtonID = String(nextionReturnBuffer[2]);
-    byte nextionButtonAction = nextionReturnBuffer[3];
+    String nextionPage = String(returnBuffer[1]);
+    String nextionButtonID = String(returnBuffer[2]);
+    byte nextionButtonAction = returnBuffer[3];
 
     if (nextionButtonAction == 0x01)
     {
-      debugPrintln(String(F("HMI IN: [Button ON] 'p[")) + nextionPage + "].b[" + nextionButtonID + "]'");
-      String mqttButtonTopic = mqttStateTopic + "/p[" + nextionPage + "].b[" + nextionButtonID + "]";
-      debugPrintln(String(F("MQTT OUT: '")) + mqttButtonTopic + "' : 'ON'");
-      mqttClient.publish(mqttButtonTopic, "ON");
+      hasp::debugPrintln(String(F("HMI IN: [Button ON] 'p[")) + nextionPage + "].b[" + nextionButtonID + "]'");
+      String mqttButtonTopic = mqttWrapper::stateTopic + "/p[" + nextionPage + "].b[" + nextionButtonID + "]";
+      hasp::debugPrintln(String(F("MQTT OUT: '")) + mqttButtonTopic + "' : 'ON'");
+      mqttWrapper::getClient().publish(mqttButtonTopic, "ON");
       String mqttButtonJSONEvent = String(F("{\"event\":\"p[")) + String(nextionPage) + String(F("].b[")) + String(nextionButtonID) + String(F("]\", \"value\":\"ON\"}"));
-      mqttClient.publish(mqttStateJSONTopic, mqttButtonJSONEvent);
-      if (beepEnabled)
+      mqttWrapper::getClient().publish(mqttWrapper::stateJSONTopic, mqttButtonJSONEvent);
+      if (hasp::beepEnabled)
       {
-        beepOnTime = 500;
-        beepOffTime = 100;
-        beepCounter = 1;
+        hasp::beepOnTime = 500;
+        hasp::beepOffTime = 100;
+        hasp::beepCounter = 1;
       }
     }
     if (nextionButtonAction == 0x00)
     {
-      debugPrintln(String(F("HMI IN: [Button OFF] 'p[")) + nextionPage + "].b[" + nextionButtonID + "]'");
-      String mqttButtonTopic = mqttStateTopic + "/p[" + nextionPage + "].b[" + nextionButtonID + "]";
-      debugPrintln(String(F("MQTT OUT: '")) + mqttButtonTopic + "' : 'OFF'");
-      mqttClient.publish(mqttButtonTopic, "OFF");
+      hasp::debugPrintln(String(F("HMI IN: [Button OFF] 'p[")) + nextionPage + "].b[" + nextionButtonID + "]'");
+      String mqttButtonTopic = mqttWrapper::stateTopic + "/p[" + nextionPage + "].b[" + nextionButtonID + "]";
+      hasp::debugPrintln(String(F("MQTT OUT: '")) + mqttButtonTopic + "' : 'OFF'");
+      mqttWrapper::getClient().publish(mqttButtonTopic, "OFF");
       // Now see if this object has a .val that might have been updated.  Works for sliders,
       // two-state buttons, etc, throws a 0x1A error for normal buttons which we'll catch and ignore
-      mqttGetSubtopic = "/p[" + nextionPage + "].b[" + nextionButtonID + "].val";
-      mqttGetSubtopicJSON = "p[" + nextionPage + "].b[" + nextionButtonID + "].val";
+      getSubtopic = "/p[" + nextionPage + "].b[" + nextionButtonID + "].val";
+      getSubtopicJSON = "p[" + nextionPage + "].b[" + nextionButtonID + "].val";
       nextionGetAttr("p[" + nextionPage + "].b[" + nextionButtonID + "].val");
     }
   }
-  else if (nextionReturnBuffer[0] == 0x66)
+  else if (returnBuffer[0] == 0x66)
   { // Handle incoming "sendme" page number
     // 0x66+PageNum+End
     // Example: 0x66 0x02 0xFF 0xFF 0xFF
     // Meaning: page 2
-    String nextionPage = String(nextionReturnBuffer[1]);
-    debugPrintln(String(F("HMI IN: [sendme Page] '")) + nextionPage + "'");
-    // if ((nextionActivePage != nextionPage.toInt()) && ((nextionPage != "0") || nextionReportPage0))
-    if ((nextionPage != "0") || nextionReportPage0)
+    String nextionPage = String(returnBuffer[1]);
+    hasp::debugPrintln(String(F("HMI IN: [sendme Page] '")) + nextionPage + "'");
+    // if ((activePage != nextionPage.toInt()) && ((nextionPage != "0") || reportPage0))
+    if ((nextionPage != "0") || reportPage0)
     { // If we have a new page AND ( (it's not "0") OR (we've set the flag to report 0 anyway) )
-      nextionActivePage = nextionPage.toInt();
-      String mqttPageTopic = mqttStateTopic + "/page";
-      debugPrintln(String(F("MQTT OUT: '")) + mqttPageTopic + "' : '" + nextionPage + "'");
-      mqttClient.publish(mqttPageTopic, nextionPage);
+      activePage = nextionPage.toInt();
+      String mqttPageTopic = mqttWrapper::stateTopic + "/page";
+      hasp::debugPrintln(String(F("MQTT OUT: '")) + mqttPageTopic + "' : '" + nextionPage + "'");
+      mqttWrapper::getClient().publish(mqttPageTopic, nextionPage);
     }
   }
   else if (nextionReturnBuffer[0] == 0x67)
@@ -80,40 +94,40 @@ void nextionProcessInput()
     byte nextionTouchAction = nextionReturnBuffer[5];
     if (nextionTouchAction == 0x01)
     {
-      debugPrintln(String(F("HMI IN: [Touch ON] '")) + xyCoord + "'");
-      String mqttTouchTopic = mqttStateTopic + "/touchOn";
-      debugPrintln(String(F("MQTT OUT: '")) + mqttTouchTopic + "' : '" + xyCoord + "'");
-      mqttClient.publish(mqttTouchTopic, xyCoord);
+      hasp::debugPrintln(String(F("HMI IN: [Touch ON] '")) + xyCoord + "'");
+      String mqttTouchTopic = mqttWrapper::stateTopic + "/touchOn";
+      hasp::debugPrintln(String(F("MQTT OUT: '")) + mqttTouchTopic + "' : '" + xyCoord + "'");
+      mqttWrapper::getClient().publish(mqttTouchTopic, xyCoord);
     }
     else if (nextionTouchAction == 0x00)
     {
-      debugPrintln(String(F("HMI IN: [Touch OFF] '")) + xyCoord + "'");
-      String mqttTouchTopic = mqttStateTopic + "/touchOff";
-      debugPrintln(String(F("MQTT OUT: '")) + mqttTouchTopic + "' : '" + xyCoord + "'");
-      mqttClient.publish(mqttTouchTopic, xyCoord);
+      hasp::debugPrintln(String(F("HMI IN: [Touch OFF] '")) + xyCoord + "'");
+      String mqttTouchTopic = mqttWrapper::stateTopic + "/touchOff";
+      hasp::debugPrintln(String(F("MQTT OUT: '")) + mqttTouchTopic + "' : '" + xyCoord + "'");
+      mqttWrapper::getClient().publish(mqttTouchTopic, xyCoord);
     }
   }
-  else if (nextionReturnBuffer[0] == 0x70)
+  else if (returnBuffer[0] == 0x70)
   { // Handle get string return
     // 0x70+ASCII string+End
     // Example: 0x70 0x41 0x42 0x43 0x44 0x31 0x32 0x33 0x34 0xFF 0xFF 0xFF
     // Meaning: String data, ABCD1234
     String getString;
-    for (int i = 1; i < nextionReturnIndex - 3; i++)
+    for (int i = 1; i < returnIndex - 3; i++)
     { // convert the payload into a string
-      getString += (char)nextionReturnBuffer[i];
+      getString += (char)returnBuffer[i];
     }
-    debugPrintln(String(F("HMI IN: [String Return] '")) + getString + "'");
+    hasp::debugPrintln(String(F("HMI IN: [String Return] '")) + getString + "'");
     if (mqttGetSubtopic == "")
     { // If there's no outstanding request for a value, publish to mqttStateTopic
-      debugPrintln(String(F("MQTT OUT: '")) + mqttStateTopic + "' : '" + getString + "]");
-      mqttClient.publish(mqttStateTopic, getString);
+      hasp::debugPrintln(String(F("MQTT OUT: '")) + mqttWrapper::stateTopic + "' : '" + getString + "]");
+      mqttWrapper::getClient().publish(mqttWrapper::stateTopic, getString);
     }
     else
     { // Otherwise, publish the to saved mqttGetSubtopic and then reset mqttGetSubtopic
-      String mqttReturnTopic = mqttStateTopic + mqttGetSubtopic;
-      debugPrintln(String(F("MQTT OUT: '")) + mqttReturnTopic + "' : '" + getString + "]");
-      mqttClient.publish(mqttReturnTopic, getString);
+      String mqttReturnTopic = mqttWrapper::stateTopic + mqttGetSubtopic;
+      hasp::debugPrintln(String(F("MQTT OUT: '")) + mqttReturnTopic + "' : '" + getString + "]");
+      mqttWrapper::getClient().publish(mqttReturnTopic, getString);
       mqttGetSubtopic = "";
     }
   }
@@ -127,13 +141,13 @@ void nextionProcessInput()
     getInt = getInt * 256 + nextionReturnBuffer[2];
     getInt = getInt * 256 + nextionReturnBuffer[1];
     String getString = String(getInt);
-    debugPrintln(String(F("HMI IN: [Int Return] '")) + getString + "'");
+    hasp::debugPrintln(String(F("HMI IN: [Int Return] '")) + getString + "'");
 
     if (lcdVersionQueryFlag)
     {
       lcdVersion = getInt;
       lcdVersionQueryFlag = false;
-      debugPrintln(String(F("HMI IN: lcdVersion '")) + String(lcdVersion) + "'");
+      hasp::debugPrintln(String(F("HMI IN: lcdVersion '")) + String(lcdVersion) + "'");
     }
     else if (mqttGetSubtopic == "")
     {
@@ -186,7 +200,7 @@ void nextionProcessInput()
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-bool nextionHandleInput()
+bool nextion::handleInput()
 { // Handle incoming serial data from the Nextion panel
   // This will collect serial data from the panel and place it into the global buffer
   // nextionReturnBuffer[nextionReturnIndex]
@@ -227,7 +241,7 @@ bool nextionHandleInput()
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-void nextionSetAttr(String hmiAttribute, String hmiValue)
+void nextion::setAttr(String hmiAttribute, String hmiValue)
 { // Set the value of a Nextion component attribute
   Serial1.print(hmiAttribute);
   Serial1.print("=");
@@ -237,7 +251,7 @@ void nextionSetAttr(String hmiAttribute, String hmiValue)
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-void nextionGetAttr(String hmiAttribute)
+void nextion::getAttr(String hmiAttribute)
 { // Get the value of a Nextion component attribute
   // This will only send the command to the panel requesting the attribute, the actual
   // return of that value will be handled by nextionProcessInput and placed into mqttGetSubtopic
@@ -247,7 +261,7 @@ void nextionGetAttr(String hmiAttribute)
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-void nextionSendCmd(String nextionCmd)
+void nextion::sendCmd(String nextionCmd)
 { // Send a raw command to the Nextion panel
   Serial1.print(nextionCmd);
   Serial1.write(nextionSuffix, sizeof(nextionSuffix));
@@ -255,7 +269,7 @@ void nextionSendCmd(String nextionCmd)
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-void nextionParseJson(String &strPayload)
+void nextion::parseJson(String &strPayload)
 { // Parse an incoming JSON array into individual Nextion commands
   if (strPayload.endsWith(",]"))
   { // Trailing null array elements are an artifact of older Home Assistant automations and need to
@@ -281,7 +295,7 @@ void nextionParseJson(String &strPayload)
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-void nextionStartOtaDownload(String otaUrl)
+void nextion::startOtaDownload(String otaUrl)
 { // Upload firmware to the Nextion LCD via HTTP download
   // based in large part on code posted by indev2 here:
   // http://support.iteadstudio.com/support/discussions/topics/11000007686/page/2
@@ -431,7 +445,7 @@ void nextionStartOtaDownload(String otaUrl)
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-bool nextionOtaResponse()
+bool nextion::otaResponse()
 { // Monitor the serial port for a 0x05 response within our timeout
 
   unsigned long nextionCommandTimeout = 2000;   // timeout for receiving termination string in milliseconds
@@ -457,7 +471,7 @@ bool nextionOtaResponse()
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-void nextionConnect()
+void nextion::connect()
 {
   if ((millis() - nextionCheckTimer) >= nextionCheckInterval)
   {
@@ -492,7 +506,7 @@ void nextionConnect()
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-void nextionSetSpeed()
+void nextion::setSpeed()
 {
   debugPrintln(F("HMI: No Nextion response, attempting 9600bps connection"));
   Serial1.begin(9600);
@@ -504,7 +518,7 @@ void nextionSetSpeed()
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
-void nextionReset()
+void nextion::reset()
 {
   debugPrintln(F("HMI: Rebooting LCD"));
   digitalWrite(nextionResetPin, LOW);

@@ -8,7 +8,7 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // These defaults may be overwritten with values saved by the web interface
 #define MQTT_SRV            ""
-#define MQTT_PORT           ""
+#define MQTT_PORT           1883
 #define MQTT_USER           ""
 #define MQTT_PASS           ""
 #define HASP_NODE           "plate01"
