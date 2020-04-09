@@ -43,32 +43,16 @@
 #include <ESP8266HTTPClient.h>
 #include <ESP8266httpUpdate.h>
 #include <ESP8266HTTPUpdateServer.h>
-#include <SoftwareSerial.h>
-
-
-
-                     
 
 const unsigned long updateCheckInterval = 43200000; // Time in msec between update checks (12 hours)
 unsigned long updateCheckTimer = 0;                 // Timer for update check
-const unsigned long nextionCheckInterval = 5000;    // Time in msec between nextion connection checks
-unsigned long nextionCheckTimer = 0;                // Timer for nextion connection checks
-unsigned int nextionRetryMax = 5;                   // Attempt to connect to panel this many times
-
 
 bool startupCompleteFlag = false;               // Startup process has completed
 const long statusUpdateInterval = 300000;       // Time in msec between publishing MQTT status updates (5 minutes)
 long statusUpdateTimer = 0;                     // Timer for update check
 
-
 ESP8266HTTPUpdateServer httpOTAUpdate;
 MDNSResponder::hMDNSService hMDNSService;
-
-// Additional CSS style to match Hass theme
-const char HASP_STYLE[] = "<style>button{background-color:#03A9F4;}body{width:60%;margin:auto;}input:invalid{border:1px solid red;}input[type=checkbox]{width:20px;}</style>";
-// URL for auto-update "version.json"
-const char UPDATE_URL[] = "http://haswitchplate.com/update/version.json";
-
 
 /**
  *  Function declarations (C/C++ compatibility)
@@ -184,11 +168,11 @@ void loop()
     MDNS.update();
   }
 
-  if ((nextion::lcdVersion < 1) && (millis() <= (nextionRetryMax * nextionCheckInterval)))
+  if ((nextion::lcdVersion < 1) && (millis() <= (nextion::retryMax * nextion::checkInterval)))
   { // Attempt to connect to LCD panel to collect model and version info during startup
     nextion::connect();
   }
-  else if ((nextion::lcdVersion > 0) && (millis() <= (nextionRetryMax * nextionCheckInterval)) && !startupCompleteFlag)
+  else if ((nextion::lcdVersion > 0) && (millis() <= (nextion::retryMax * nextion::checkInterval)) && !startupCompleteFlag)
   { // We have LCD info, so trigger an update check + report
     if (hasp::updateCheck())
     { // Send a status update if the update check worked
@@ -196,7 +180,7 @@ void loop()
       startupCompleteFlag = true;
     }
   }
-  else if ((millis() > (nextionRetryMax * nextionCheckInterval)) && !startupCompleteFlag)
+  else if ((millis() > (nextion::retryMax * nextion::checkInterval)) && !startupCompleteFlag)
   { // We still don't have LCD info so go ahead and run the rest of the checks once at startup anyway
     hasp::updateCheck();
     mqttWrapper::statusUpdate();
@@ -252,27 +236,6 @@ void loop()
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // Functions
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-// Submitted by benmprojects to handle "beep" commands. Split
-// incoming String by separator, return selected field as String
-// Original source: https://arduino.stackexchange.com/a/1237
-String getSubtringField(String data, char separator, int index)
-{
-  int found = 0;
-  int strIndex[] = {0, -1};
-  int maxIndex = data.length();
-
-  for (int i = 0; i <= maxIndex && found <= index; i++)
-  {
-    if (data.charAt(i) == separator || i == maxIndex)
-    {
-      found++;
-      strIndex[0] = strIndex[1] + 1;
-      strIndex[1] = (i == maxIndex) ? i + 1 : i;
-    }
-  }
-  return found > index ? data.substring(strIndex[0], strIndex[1]) : "";
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 String printHex8(byte *data, uint8_t length)

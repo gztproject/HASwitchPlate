@@ -58,3 +58,8 @@ WiFiServer telnet::getServer()
 {
   return server;
 }
+
+WiFiClient telnet::getClient()
+{
+  return client;
+}

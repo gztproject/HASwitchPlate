@@ -4,7 +4,7 @@ MQTTClient mqttWrapper::client;
 
 void mqttWrapper::begin()
 {
-  client.begin(hasp::mqttServer, hasp::mqttPort, hasp::getClient()); // Create MQTT service object
+  client.begin(hasp::mqttServer, hasp::mqttPort, hasp::client); // Create MQTT service object
   client.onMessage(callback);                                 // Setup MQTT callback function
   connect();                                                  // Connect to MQTT
 }
@@ -12,7 +12,6 @@ void mqttWrapper::begin()
 void mqttWrapper::connect()
 {
   // MQTT connection and subscriptions
-
   static bool mqttFirstConnect = true; // For the first connection, we want to send an OFF/ON state to
                                        // trigger any automations, but skip that if we reconnect while
                                        // still running the sketch
@@ -59,11 +58,11 @@ void mqttWrapper::connect()
     static uint8_t mqttReconnectCount = 0;
 
     // Generate an MQTT client ID as haspNode + our MAC address
-    mqttClientId = String(hasp::node) + "-" + String(hasp::mac[0], HEX) + String(hasp::mac[1], HEX) + String(hasp::mac[2], HEX) + String(hasp::mac[3], HEX) + String(hasp::mac[4], HEX) + String(hasp::mac[5], HEX);
+    clientId = String(hasp::node) + "-" + String(hasp::mac[0], HEX) + String(hasp::mac[1], HEX) + String(hasp::mac[2], HEX) + String(hasp::mac[3], HEX) + String(hasp::mac[4], HEX) + String(hasp::mac[5], HEX);
     nextion::sendCmd("page 0");
     nextion::setAttr("p[0].b[1].font", "6");
-    nextion::setAttr("p[0].b[1].txt", "\"WiFi Connected!\\r " + String(WiFi.SSID()) + "\\rIP: " + WiFi.localIP().toString() + "\\r\\rMQTT Connecting:\\r " + String(server) + "\"");
-    hasp::debugPrintln(String(F("MQTT: Attempting connection to broker ")) + String(hasp::mqttServer) + " as clientID " + mqttClientId);
+    nextion::setAttr("p[0].b[1].txt", "\"WiFi Connected!\\r " + String(WiFi.SSID()) + "\\rIP: " + WiFi.localIP().toString() + "\\r\\rMQTT Connecting:\\r " + String(hasp::mqttServer) + "\"");
+    hasp::debugPrintln(String(F("MQTT: Attempting connection to broker ")) + String(hasp::mqttServer) + " as clientID " + clientId);
 
     // Set keepAlive, cleanSession, timeout
     client.setOptions(30, true, 5000);
@@ -71,7 +70,7 @@ void mqttWrapper::connect()
     // declare LWT
     client.setWill(statusTopic.c_str(), "OFF");
 
-    if (client.connect(mqttClientId.c_str(), hasp::mqttUser, hasp::mqttPassword))
+    if (client.connect(clientId.c_str(), hasp::mqttUser, hasp::mqttPassword))
     { // Attempt to connect to broker, setting last will and testament
       // Subscribe to our incoming topics
       if (client.subscribe(commandSubscription))
@@ -112,7 +111,7 @@ void mqttWrapper::connect()
       mqttReconnectCount = 0;
 
       // Update panel with MQTT status
-      nextion::setAttr("p[0].b[1].txt", "\"WiFi Connected!\\r " + String(WiFi.SSID()) + "\\rIP: " + WiFi.localIP().toString() + "\\r\\rMQTT Connected:\\r " + String(mqttServer) + "\"");
+      nextion::setAttr("p[0].b[1].txt", "\"WiFi Connected!\\r " + String(WiFi.SSID()) + "\\rIP: " + WiFi.localIP().toString() + "\\r\\rMQTT Connected:\\r " + String(hasp::mqttServer) + "\"");
       hasp::debugPrintln(F("MQTT: connected"));
       if (nextion::activePage)
       {
@@ -128,7 +127,7 @@ void mqttWrapper::connect()
         hasp::reset();
       }
       hasp::debugPrintln(String(F("MQTT connection attempt ")) + String(mqttReconnectCount) + String(F(" failed with rc ")) + String(client.returnCode()) + String(F(".  Trying again in 30 seconds.")));
-      nextion::setAttr("p[0].b[1].txt", "\"WiFi Connected:\\r " + String(WiFi.SSID()) + "\\rIP: " + WiFi.localIP().toString() + "\\r\\rMQTT Connect to:\\r " + String(mqttServer) + "\\rFAILED rc=" + String(client.returnCode()) + "\\r\\rRetry in 30 sec\"");
+      nextion::setAttr("p[0].b[1].txt", "\"WiFi Connected:\\r " + String(WiFi.SSID()) + "\\rIP: " + WiFi.localIP().toString() + "\\r\\rMQTT Connect to:\\r " + String(hasp::mqttServer) + "\\rFAILED rc=" + String(client.returnCode()) + "\\r\\rRetry in 30 sec\"");
       unsigned long mqttReconnectTimer = millis(); // record current time for our timeout
       while ((millis() - mqttReconnectTimer) < 30000)
       { // Handle HTTP and OTA while we're waiting 30sec for MQTT to reconnect
@@ -144,7 +143,6 @@ void mqttWrapper::connect()
   }
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
 void mqttWrapper::callback(String &strTopic, String &strPayload)
 { // Handle incoming commands from MQTT
 
@@ -189,7 +187,7 @@ void mqttWrapper::callback(String &strTopic, String &strPayload)
   }
   else if (strTopic == (commandTopic + "/statusupdate") || strTopic == (groupCommandTopic + "/statusupdate"))
   {                     // '[...]/device/command/statusupdate' == mqttStatusUpdate()
-    mqttStatusUpdate(); // return status JSON via MQTT
+    statusUpdate(); // return status JSON via MQTT
   }
   else if (strTopic == (commandTopic + "/lcdupdate") || strTopic == (groupCommandTopic + "/lcdupdate"))
   { // '[...]/device/command/lcdupdate' -m 'http://192.168.0.10/local/HASwitchPlate.tft' == nextionStartOtaDownload("http://192.168.0.10/local/HASwitchPlate.tft")
@@ -213,21 +211,21 @@ void mqttWrapper::callback(String &strTopic, String &strPayload)
       hasp::startOta(strPayload);
     }
   }
-  else if (strTopic == (mqttCommandTopic + "/reboot") || strTopic == (mqttGroupCommandTopic + "/reboot"))
+  else if (strTopic == (commandTopic + "/reboot") || strTopic == (groupCommandTopic + "/reboot"))
   { // '[...]/device/command/reboot' == reboot microcontroller)
     hasp::debugPrintln(F("MQTT: Rebooting device"));
     hasp::reset();
   }
-  else if (strTopic == (mqttCommandTopic + "/lcdreboot") || strTopic == (mqttGroupCommandTopic + "/lcdreboot"))
+  else if (strTopic == (commandTopic + "/lcdreboot") || strTopic == (groupCommandTopic + "/lcdreboot"))
   { // '[...]/device/command/lcdreboot' == reboot LCD panel)
     hasp::debugPrintln(F("MQTT: Rebooting LCD"));
     nextion::reset();
   }
-  else if (strTopic == (mqttCommandTopic + "/factoryreset") || strTopic == (mqttGroupCommandTopic + "/factoryreset"))
+  else if (strTopic == (commandTopic + "/factoryreset") || strTopic == (groupCommandTopic + "/factoryreset"))
   { // '[...]/device/command/factoryreset' == clear all saved settings)
     persistance::clearSaved();
   }
-  else if (strTopic == (mqttCommandTopic + "/beep") || strTopic == (mqttGroupCommandTopic + "/beep"))
+  else if (strTopic == (commandTopic + "/beep") || strTopic == (groupCommandTopic + "/beep"))
   { // '[...]/device/command/beep')
     String mqqtvar1 = getSubtringField(strPayload, ',', 0);
     String mqqtvar2 = getSubtringField(strPayload, ',', 1);
@@ -237,26 +235,26 @@ void mqttWrapper::callback(String &strTopic, String &strPayload)
     hasp::beepOffTime = mqqtvar2.toInt();
     hasp::beepCounter = mqqtvar3.toInt();
   }
-  else if (strTopic.startsWith(mqttCommandTopic) && (strPayload == ""))
+  else if (strTopic.startsWith(commandTopic) && (strPayload == ""))
   { // '[...]/device/command/p[1].b[4].txt' -m '' == nextionGetAttr("p[1].b[4].txt")
-    String subTopic = strTopic.substring(mqttCommandTopic.length() + 1);
-    mqttGetSubtopic = "/" + subTopic;
+    String subTopic = strTopic.substring(commandTopic.length() + 1);
+    getSubtopic = "/" + subTopic;
     nextion::getAttr(subTopic);
   }
-  else if (strTopic.startsWith(mqttGroupCommandTopic) && (strPayload == ""))
+  else if (strTopic.startsWith(groupCommandTopic) && (strPayload == ""))
   { // '[...]/group/command/p[1].b[4].txt' -m '' == nextionGetAttr("p[1].b[4].txt")
-    String subTopic = strTopic.substring(mqttGroupCommandTopic.length() + 1);
-    mqttGetSubtopic = "/" + subTopic;
+    String subTopic = strTopic.substring(groupCommandTopic.length() + 1);
+    getSubtopic = "/" + subTopic;
     nextion::getAttr(subTopic);
   }
-  else if (strTopic.startsWith(mqttCommandTopic))
+  else if (strTopic.startsWith(commandTopic))
   { // '[...]/device/command/p[1].b[4].txt' -m '"Lights On"' == nextionSetAttr("p[1].b[4].txt", "\"Lights On\"")
-    String subTopic = strTopic.substring(mqttCommandTopic.length() + 1);
+    String subTopic = strTopic.substring(commandTopic.length() + 1);
     nextion::setAttr(subTopic, strPayload);
   }
-  else if (strTopic.startsWith(mqttGroupCommandTopic))
+  else if (strTopic.startsWith(groupCommandTopic))
   { // '[...]/group/command/p[1].b[4].txt' -m '"Lights On"' == nextionSetAttr("p[1].b[4].txt", "\"Lights On\"")
-    String subTopic = strTopic.substring(mqttGroupCommandTopic.length() + 1);
+    String subTopic = strTopic.substring(groupCommandTopic.length() + 1);
     nextion::setAttr(subTopic, strPayload);
   }
   else if (strTopic == lightBrightCommandTopic)
@@ -286,49 +284,70 @@ void mqttWrapper::callback(String &strTopic, String &strPayload)
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 void mqttWrapper::statusUpdate()
 { // Periodically publish a JSON string indicating system status
-  String mqttStatusPayload = "{";
-  mqttStatusPayload += String(F("\"status\":\"available\","));
-  mqttStatusPayload += String(F("\"espVersion\":")) + String(hasp::version) + String(F(","));
-  if (updateEspAvailable)
+  String statusPayload = "{";
+  statusPayload += String(F("\"status\":\"available\","));
+  statusPayload += String(F("\"espVersion\":")) + String(hasp::version) + String(F(","));
+  if (hasp::updateEspAvailable)
   {
-    mqttStatusPayload += String(F("\"updateEspAvailable\":true,"));
+    statusPayload += String(F("\"updateEspAvailable\":true,"));
   }
   else
   {
-    mqttStatusPayload += String(F("\"updateEspAvailable\":false,"));
+    statusPayload += String(F("\"updateEspAvailable\":false,"));
   }
   if (nextion::lcdConnected)
   {
-    mqttStatusPayload += String(F("\"lcdConnected\":true,"));
+    statusPayload += String(F("\"lcdConnected\":true,"));
   }
   else
   {
-    mqttStatusPayload += String(F("\"lcdConnected\":false,"));
+    statusPayload += String(F("\"lcdConnected\":false,"));
   }
-  mqttStatusPayload += String(F("\"lcdVersion\":\"")) + String(nextion::lcdVersion) + String(F("\","));
-  if (updateLcdAvailable)
+  statusPayload += String(F("\"lcdVersion\":\"")) + String(nextion::lcdVersion) + String(F("\","));
+  if (hasp::updateLcdAvailable)
   {
-    mqttStatusPayload += String(F("\"updateLcdAvailable\":true,"));
+    statusPayload += String(F("\"updateLcdAvailable\":true,"));
   }
   else
   {
-    mqttStatusPayload += String(F("\"updateLcdAvailable\":false,"));
+    statusPayload += String(F("\"updateLcdAvailable\":false,"));
   }
-  mqttStatusPayload += String(F("\"espUptime\":")) + String(long(millis() / 1000)) + String(F(","));
-  mqttStatusPayload += String(F("\"signalStrength\":")) + String(WiFi.RSSI()) + String(F(","));
-  mqttStatusPayload += String(F("\"haspIP\":\"")) + WiFi.localIP().toString() + String(F("\","));
-  mqttStatusPayload += String(F("\"heapFree\":")) + String(ESP.getFreeHeap()) + String(F(","));
-  mqttStatusPayload += String(F("\"heapFragmentation\":")) + String(ESP.getHeapFragmentation()) + String(F(","));
-  mqttStatusPayload += String(F("\"espCore\":\"")) + String(ESP.getCoreVersion()) + String(F("\""));
-  mqttStatusPayload += "}";
+  statusPayload += String(F("\"espUptime\":")) + String(long(millis() / 1000)) + String(F(","));
+  statusPayload += String(F("\"signalStrength\":")) + String(WiFi.RSSI()) + String(F(","));
+  statusPayload += String(F("\"haspIP\":\"")) + WiFi.localIP().toString() + String(F("\","));
+  statusPayload += String(F("\"heapFree\":")) + String(ESP.getFreeHeap()) + String(F(","));
+  statusPayload += String(F("\"heapFragmentation\":")) + String(ESP.getHeapFragmentation()) + String(F(","));
+  statusPayload += String(F("\"espCore\":\"")) + String(ESP.getCoreVersion()) + String(F("\""));
+  statusPayload += "}";
 
-  client.publish(sensorTopic, mqttStatusPayload, true, 1);
+  client.publish(sensorTopic, statusPayload, true, 1);
   client.publish(statusTopic, "ON", true, 1);
-  hasp::debugPrintln(String(F("MQTT: status update: ")) + String(mqttStatusPayload));
+  hasp::debugPrintln(String(F("MQTT: status update: ")) + String(statusPayload));
   hasp::debugPrintln(String(F("MQTT: binary_sensor state: [")) + statusTopic + "] : [ON]");
 }
 
 MQTTClient mqttWrapper::getClient()
 {
   return client;
+}
+
+// Submitted by benmprojects to handle "beep" commands. Split
+// incoming String by separator, return selected field as String
+// Original source: https://arduino.stackexchange.com/a/1237
+String mqttWrapper::getSubtringField(String data, char separator, int index)
+{
+  int found = 0;
+  int strIndex[] = {0, -1};
+  int maxIndex = data.length();
+
+  for (int i = 0; i <= maxIndex && found <= index; i++)
+  {
+    if (data.charAt(i) == separator || i == maxIndex)
+    {
+      found++;
+      strIndex[0] = strIndex[1] + 1;
+      strIndex[1] = (i == maxIndex) ? i + 1 : i;
+    }
+  }
+  return found > index ? data.substring(strIndex[0], strIndex[1]) : "";
 }

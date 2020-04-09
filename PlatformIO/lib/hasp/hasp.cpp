@@ -14,6 +14,8 @@ char *hasp::mqttPassword = MQTT_USER;
 char *hasp::configUser = WEB_USER;
 char *hasp::configPassword = WEB_PASS;
 uint8_t hasp::motionPin = MOTION_PIN;
+String hasp::espFirmwareUrl = ESP_FIRMWARE_URL;
+String hasp::lcdFirmwareUrl = LCD_FIRMWARE_URL;
 
 bool hasp::shouldSaveConfig = false;
 
@@ -29,9 +31,15 @@ byte hasp::beepPin;
 bool hasp::updateEspAvailable = false;                    // Flag for update check to report new ESP FW version
 float hasp::updateEspAvailableVersion;                    // Float to hold the new ESP FW version number
 bool hasp::updateLcdAvailable = false;                    // Flag for update check to report new LCD FW version
+unsigned long hasp::updateLcdAvailableVersion;
 bool hasp::debugSerialEnabled = true;                     // Enable USB serial debug output
 bool hasp::debugTelnetEnabled = false;                    // Enable telnet debug output
 bool hasp::debugSerialD8Enabled = true;                   // Enable hardware serial debug output on pin D8
+
+// Additional CSS style to match Hass theme
+//const char hasp::HASP_STYLE[] = "<style>button{background-color:#03A9F4;}body{width:60%;margin:auto;}input:invalid{border:1px solid red;}input[type=checkbox]{width:20px;}</style>";
+// URL for auto-update "version.json"
+const char *hasp::UPDATE_URL = "http://haswitchplate.com/update/version.json";
 
 WiFiClient hasp::wifiClient;
 
@@ -339,9 +347,9 @@ bool hasp::updateCheck()
     }
     if (nextion::model && !updateJson[nextion::model]["version"].isNull())
     {
-      nextion::updateLcdAvailableVersion = updateJson[nextionModel]["version"].as<int>();
-      debugPrintln(String(F("UPDATE: updateLcdAvailableVersion: ")) + String(nextion::updateLcdAvailableVersion));
-      lcdFirmwareUrl = updateJson[nextionModel]["firmware"].as<String>();
+      updateLcdAvailableVersion = updateJson[nextion::model]["version"].as<int>();
+      debugPrintln(String(F("UPDATE: updateLcdAvailableVersion: ")) + String(updateLcdAvailableVersion));
+      lcdFirmwareUrl = updateJson[nextion::model]["firmware"].as<String>();
       if (updateLcdAvailableVersion > nextion::lcdVersion)
       {
         updateLcdAvailable = true;
@@ -356,4 +364,9 @@ bool hasp::updateCheck()
 WiFiClient hasp::getClient()
 {
   return wifiClient;
+}
+
+WiFiClient *hasp::getClientPtr()
+{
+  return &wifiClient;
 }

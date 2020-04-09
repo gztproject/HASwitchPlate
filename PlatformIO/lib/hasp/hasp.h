@@ -6,12 +6,14 @@
 
 #include <nextion.h>
 #include <persistance.h>
+#include <telnet.h>
 
 #include <WiFiManager.h>
 #include <ArduinoOTA.h>
 #include <WiFiUdp.h>
 #include <ESP8266httpUpdate.h>
 #include <ESP8266HTTPUpdateServer.h>
+#include <SoftwareSerial.h>
 
 #define CONNECT_TIMEOUT 300  // Timeout for WiFi and MQTT connection attempts in seconds
 #define RECONNECT_TIMEOUT 15 // Timeout for WiFi reconnection attempts in seconds
@@ -21,7 +23,7 @@ class hasp
 public:
     // Variables
     static const float version; // Current HASP software release version
-    static byte mac[6]; // Byte array to store our MAC address
+    static byte mac[6];         // Byte array to store our MAC address
     static char *node;
     static char *wifiSSID;
     static char *wifiPass;
@@ -45,7 +47,11 @@ public:
     static unsigned int beepCounter;     // Count the number of beeps
     static byte beepPin;                 // define beep pin output
 
-    static bool debugTelnetEnabled;         // Enable telnet debug output
+    static bool debugTelnetEnabled; // Enable telnet debug output
+    static bool debugSerialEnabled;         // Enable USB serial debug output
+
+    static bool updateEspAvailable;         // Flag for update check to report new ESP FW version
+    static bool updateLcdAvailable;         // Flag for update check to report new LCD FW version   
 
     // Functions
     static void wifiSetup();
@@ -58,16 +64,20 @@ public:
     static void setupOta();
     static bool updateCheck();
     static WiFiClient getClient();
+    static WiFiClient *getClientPtr();
 
 private:
     hasp(){};
     static WiFiClient wifiClient;
-
-    static bool updateEspAvailable;         // Flag for update check to report new ESP FW version
-    static float updateEspAvailableVersion; // Float to hold the new ESP FW version number
-    static bool updateLcdAvailable;         // Flag for update check to report new LCD FW version
-    static bool debugSerialEnabled;         // Enable USB serial debug output    
+    static unsigned long updateLcdAvailableVersion;        // Int to hold the new LCD FW version number
+    static float updateEspAvailableVersion; // Float to hold the new ESP FW version number     
     static bool debugSerialD8Enabled;       // Enable hardware serial debug output on pin D8
+    // Additional CSS style to match Hass theme
+    //static const char HASP_STYLE[];
+    // URL for auto-update "version.json"
+    static const char *UPDATE_URL;
+    static String espFirmwareUrl;
+    static String lcdFirmwareUrl;
 };
 
 #endif

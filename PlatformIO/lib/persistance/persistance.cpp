@@ -29,7 +29,9 @@ void persistance::read()
           }
           if (!configJson["mqttPort"].isNull())
           {
-            strcpy(hasp::mqttPort, configJson["mqttPort"]);
+            char *port = "";
+            itoa(hasp::mqttPort, port, 10);
+            strcpy(port, configJson["mqttPort"]);
           }
           if (!configJson["mqttUser"].isNull())
           {
@@ -57,7 +59,9 @@ void persistance::read()
           }
           if (!configJson["motionPinConfig"].isNull())
           {
-            strcpy(hasp::motionPin, configJson["motionPinConfig"]);
+            char *pin = "";
+            itoa(hasp::motionPin, pin, 10);
+            strcpy(pin, configJson["motionPinConfig"]);
           }
           if (!configJson["debugSerialEnabled"].isNull())
           {
@@ -124,15 +128,13 @@ void persistance::read()
   }
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-static void persistance::saveCallback()
+void persistance::saveCallback()
 { // Callback notifying us of the need to save config
   hasp::debugPrintln(F("SPIFFS: Configuration changed, flagging for save"));
-  shouldSaveConfig = true;
+  hasp::shouldSaveConfig = true;
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-static void persistance::save()
+void persistance::save()
 { // Save the custom parameters to config.json
   nextion::setAttr("p[0].b[1].txt", "\"Saving\\rconfig\"");
   hasp::debugPrintln(F("SPIFFS: Saving config"));
@@ -145,7 +147,7 @@ static void persistance::save()
   jsonConfigValues["groupName"] = hasp::groupName;
   jsonConfigValues["configUser"] = hasp::configUser;
   jsonConfigValues["configPassword"] = hasp::configPassword;
-  jsonConfigValues["motionPinConfig"] = hasp::motionPinConfig;
+  jsonConfigValues["motionPinConfig"] = hasp::motionPin;
   jsonConfigValues["debugSerialEnabled"] = hasp::debugSerialEnabled;
   jsonConfigValues["debugTelnetEnabled"] = hasp::debugTelnetEnabled;
   jsonConfigValues["mdnsEnabled"] = hasp::mdnsEnabled;
@@ -175,11 +177,10 @@ static void persistance::save()
     serializeJson(jsonConfigValues, configFile);
     configFile.close();
   }
-  shouldSaveConfig = false;
+  hasp::shouldSaveConfig = false;
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-static void persistance::clearSaved()
+void persistance::clearSaved()
 { // Clear out all local storage
   nextion::setAttr("dims", "100");
   nextion::sendCmd("page 0");

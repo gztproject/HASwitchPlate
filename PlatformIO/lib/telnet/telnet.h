@@ -12,6 +12,7 @@ class telnet
 public:
     static void handleClient();
     static WiFiServer getServer();
+    static WiFiClient getClient();
 
 private:
     telnet(){};

@@ -10,9 +10,12 @@ uint32_t tftFileSize = 0;
 bool nextion::reportPage0 = false;
 
 unsigned long nextion::lcdVersion = 0;
-unsigned long nextion::updateLcdAvailableVersion;
 bool nextion::lcdVersionQueryFlag = false;
-const String nextion::lcdVersionQuery = "p[0].b[2].val"; 
+const String nextion::lcdVersionQuery = "p[0].b[2].val";
+
+const unsigned long nextion::checkInterval = 5000; // Time in msec between nextion connection checks
+unsigned long nextion::checkTimer = 0;             // Timer for nextion connection checks
+unsigned int nextion::retryMax = 5;                // Attempt to connect to panel this many times
 
 void nextion::begin()
 {
@@ -59,9 +62,9 @@ void nextion::processInput()
       mqttWrapper::getClient().publish(mqttButtonTopic, "OFF");
       // Now see if this object has a .val that might have been updated.  Works for sliders,
       // two-state buttons, etc, throws a 0x1A error for normal buttons which we'll catch and ignore
-      getSubtopic = "/p[" + nextionPage + "].b[" + nextionButtonID + "].val";
-      getSubtopicJSON = "p[" + nextionPage + "].b[" + nextionButtonID + "].val";
-      nextionGetAttr("p[" + nextionPage + "].b[" + nextionButtonID + "].val");
+      mqttWrapper::getSubtopic = "/p[" + nextionPage + "].b[" + nextionButtonID + "].val";
+      mqttWrapper::getSubtopicJSON = "p[" + nextionPage + "].b[" + nextionButtonID + "].val";
+      getAttr("p[" + nextionPage + "].b[" + nextionButtonID + "].val");
     }
   }
   else if (returnBuffer[0] == 0x66)
@@ -80,18 +83,18 @@ void nextion::processInput()
       mqttWrapper::getClient().publish(mqttPageTopic, nextionPage);
     }
   }
-  else if (nextionReturnBuffer[0] == 0x67)
+  else if (returnBuffer[0] == 0x67)
   { // Handle touch coordinate data
     // 0X67+Coordinate X High+Coordinate X Low+Coordinate Y High+Coordinate Y Low+TouchEvent+End
     // Example: 0X67 0X00 0X7A 0X00 0X1E 0X01 0XFF 0XFF 0XFF
     // Meaning: Coordinate (122,30), Touch Event: Press
     // issue Nextion command "sendxy=1" to enable this output
-    uint16_t xCoord = nextionReturnBuffer[1];
-    xCoord = xCoord * 256 + nextionReturnBuffer[2];
-    uint16_t yCoord = nextionReturnBuffer[3];
-    yCoord = yCoord * 256 + nextionReturnBuffer[4];
+    uint16_t xCoord = returnBuffer[1];
+    xCoord = xCoord * 256 + returnBuffer[2];
+    uint16_t yCoord = returnBuffer[3];
+    yCoord = yCoord * 256 + returnBuffer[4];
     String xyCoord = String(xCoord) + ',' + String(yCoord);
-    byte nextionTouchAction = nextionReturnBuffer[5];
+    byte nextionTouchAction = returnBuffer[5];
     if (nextionTouchAction == 0x01)
     {
       hasp::debugPrintln(String(F("HMI IN: [Touch ON] '")) + xyCoord + "'");
@@ -118,28 +121,28 @@ void nextion::processInput()
       getString += (char)returnBuffer[i];
     }
     hasp::debugPrintln(String(F("HMI IN: [String Return] '")) + getString + "'");
-    if (mqttGetSubtopic == "")
+    if (mqttWrapper::getSubtopic == "")
     { // If there's no outstanding request for a value, publish to mqttStateTopic
       hasp::debugPrintln(String(F("MQTT OUT: '")) + mqttWrapper::stateTopic + "' : '" + getString + "]");
       mqttWrapper::getClient().publish(mqttWrapper::stateTopic, getString);
     }
     else
     { // Otherwise, publish the to saved mqttGetSubtopic and then reset mqttGetSubtopic
-      String mqttReturnTopic = mqttWrapper::stateTopic + mqttGetSubtopic;
+      String mqttReturnTopic = mqttWrapper::stateTopic + mqttWrapper::getSubtopic;
       hasp::debugPrintln(String(F("MQTT OUT: '")) + mqttReturnTopic + "' : '" + getString + "]");
       mqttWrapper::getClient().publish(mqttReturnTopic, getString);
-      mqttGetSubtopic = "";
+      mqttWrapper::getSubtopic = "";
     }
   }
-  else if (nextionReturnBuffer[0] == 0x71)
+  else if (returnBuffer[0] == 0x71)
   { // Handle get int return
     // 0x71+byte1+byte2+byte3+byte4+End (4 byte little endian)
     // Example: 0x71 0x7B 0x00 0x00 0x00 0xFF 0xFF 0xFF
     // Meaning: Integer data, 123
-    unsigned long getInt = nextionReturnBuffer[4];
-    getInt = getInt * 256 + nextionReturnBuffer[3];
-    getInt = getInt * 256 + nextionReturnBuffer[2];
-    getInt = getInt * 256 + nextionReturnBuffer[1];
+    unsigned long getInt = returnBuffer[4];
+    getInt = getInt * 256 + returnBuffer[3];
+    getInt = getInt * 256 + returnBuffer[2];
+    getInt = getInt * 256 + returnBuffer[1];
     String getString = String(getInt);
     hasp::debugPrintln(String(F("HMI IN: [Int Return] '")) + getString + "'");
 
@@ -149,34 +152,34 @@ void nextion::processInput()
       lcdVersionQueryFlag = false;
       hasp::debugPrintln(String(F("HMI IN: lcdVersion '")) + String(lcdVersion) + "'");
     }
-    else if (mqttGetSubtopic == "")
+    else if (mqttWrapper::getSubtopic == "")
     {
-      mqttClient.publish(mqttStateTopic, getString);
+      mqttWrapper::getClient().publish(mqttWrapper::stateTopic, getString);
     }
     // Otherwise, publish the to saved mqttGetSubtopic and then reset mqttGetSubtopic
     else
     {
-      String mqttReturnTopic = mqttStateTopic + mqttGetSubtopic;
-      mqttClient.publish(mqttReturnTopic, getString);
-      String mqttButtonJSONEvent = String(F("{\"event\":\"")) + mqttGetSubtopicJSON + String(F("\", \"value\":")) + getString + String(F("}"));
-      mqttClient.publish(mqttStateJSONTopic, mqttButtonJSONEvent);
+      String mqttReturnTopic = mqttWrapper::stateTopic + mqttWrapper::getSubtopic;
+      mqttWrapper::getClient().publish(mqttReturnTopic, getString);
+      String mqttButtonJSONEvent = String(F("{\"event\":\"")) + mqttWrapper::getSubtopicJSON + String(F("\", \"value\":")) + getString + String(F("}"));
+      mqttWrapper::getClient().publish(mqttWrapper::stateJSONTopic, mqttButtonJSONEvent);
       mqttGetSubtopic = "";
     }
   }
-  else if (nextionReturnBuffer[0] == 0x63 && nextionReturnBuffer[1] == 0x6f && nextionReturnBuffer[2] == 0x6d && nextionReturnBuffer[3] == 0x6f && nextionReturnBuffer[4] == 0x6b)
+  else if (returnBuffer[0] == 0x63 && returnBuffer[1] == 0x6f && returnBuffer[2] == 0x6d && returnBuffer[3] == 0x6f && returnBuffer[4] == 0x6b)
   { // Catch 'comok' response to 'connect' command: https://www.itead.cc/blog/nextion-hmi-upload-protocol
     String comokField;
     uint8_t comokFieldCount = 0;
     byte comokFieldSeperator = 0x2c; // ","
 
-    for (uint8_t i = 0; i <= nextionReturnIndex; i++)
+    for (uint8_t i = 0; i <= returnIndex; i++)
     { // cycle through each byte looking for our field seperator
       if (nextionReturnBuffer[i] == comokFieldSeperator)
       { // Found the end of a field, so do something with it.  Maybe.
         if (comokFieldCount == 2)
         {
-          nextionModel = comokField;
-          debugPrintln(String(F("HMI IN: nextionModel: ")) + nextionModel);
+          model = comokField;
+          hasp::debugPrintln(String(F("HMI IN: nextionModel: ")) + model);
         }
         comokFieldCount++;
         comokField = "";
@@ -194,12 +197,11 @@ void nextion::processInput()
     // ERROR: Variable name invalid
     // We'll be triggering this a lot due to requesting .val on every component that sends us a Touch Off
     // Just reset mqttGetSubtopic and move on with life.
-    mqttGetSubtopic = "";
+    mqttWrapper::getSubtopic = "";
   }
-  nextionReturnIndex = 0; // Done handling the buffer, reset index back to 0
+  returnIndex = 0; // Done handling the buffer, reset index back to 0
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
 bool nextion::handleInput()
 { // Handle incoming serial data from the Nextion panel
   // This will collect serial data from the panel and place it into the global buffer
@@ -229,74 +231,74 @@ bool nextion::handleInput()
     {
       nextionTermByteCnt = 0; // reset counter if a non-term byte was encountered
     }
-    nextionReturnBuffer[nextionReturnIndex] = nextionCommandByte;
-    nextionReturnIndex++;
+    returnBuffer[returnIndex] = nextionCommandByte;
+    returnIndex++;
   }
   if (nextionCommandComplete)
   {
-    debugPrintln(hmiDebug);
+    hasp::debugPrintln(hmiDebug);
     hmiDebug = "HMI IN: ";
   }
   return nextionCommandComplete;
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
 void nextion::setAttr(String hmiAttribute, String hmiValue)
-{ // Set the value of a Nextion component attribute
+{ 
+  // Set the value of a Nextion component attribute
   Serial1.print(hmiAttribute);
   Serial1.print("=");
   Serial1.print(hmiValue);
-  Serial1.write(nextionSuffix, sizeof(nextionSuffix));
-  debugPrintln(String(F("HMI OUT: '")) + hmiAttribute + "=" + hmiValue + "'");
+  Serial1.write(suffix, sizeof(suffix));
+  hasp::debugPrintln(String(F("HMI OUT: '")) + hmiAttribute + "=" + hmiValue + "'");
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
 void nextion::getAttr(String hmiAttribute)
-{ // Get the value of a Nextion component attribute
+{
+   // Get the value of a Nextion component attribute
   // This will only send the command to the panel requesting the attribute, the actual
   // return of that value will be handled by nextionProcessInput and placed into mqttGetSubtopic
   Serial1.print("get " + hmiAttribute);
-  Serial1.write(nextionSuffix, sizeof(nextionSuffix));
-  debugPrintln(String(F("HMI OUT: 'get ")) + hmiAttribute + "'");
+  Serial1.write(suffix, sizeof(suffix));
+  hasp::debugPrintln(String(F("HMI OUT: 'get ")) + hmiAttribute + "'");
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
 void nextion::sendCmd(String nextionCmd)
-{ // Send a raw command to the Nextion panel
+{ 
+  // Send a raw command to the Nextion panel
   Serial1.print(nextionCmd);
-  Serial1.write(nextionSuffix, sizeof(nextionSuffix));
-  debugPrintln(String(F("HMI OUT: ")) + nextionCmd);
+  Serial1.write(suffix, sizeof(suffix));
+  hasp::debugPrintln(String(F("HMI OUT: ")) + nextionCmd);
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
 void nextion::parseJson(String &strPayload)
-{ // Parse an incoming JSON array into individual Nextion commands
+{ 
+  // Parse an incoming JSON array into individual Nextion commands
   if (strPayload.endsWith(",]"))
   { // Trailing null array elements are an artifact of older Home Assistant automations and need to
     // be removed before parsing by ArduinoJSON 6+
     strPayload.remove(strPayload.length() - 2, 2);
     strPayload.concat("]");
   }
-  DynamicJsonDocument nextionCommands(mqttMaxPacketSize + 1024);
+  DynamicJsonDocument nextionCommands(MQTT_MAX_PACKET_SIZE + 1024);
   DeserializationError jsonError = deserializeJson(nextionCommands, strPayload);
   if (jsonError)
   { // Couldn't parse incoming JSON command
-    debugPrintln(String(F("MQTT: [ERROR] Failed to parse incoming JSON command with error: ")) + String(jsonError.c_str()));
+    hasp::debugPrintln(String(F("MQTT: [ERROR] Failed to parse incoming JSON command with error: ")) + String(jsonError.c_str()));
   }
   else
   {
     deserializeJson(nextionCommands, strPayload);
     for (uint8_t i = 0; i < nextionCommands.size(); i++)
     {
-      nextionSendCmd(nextionCommands[i]);
+      sendCmd(nextionCommands[i]);
       delayMicroseconds(500); // Larger JSON objects can take a while to run through over serial,
     }                         // give the ESP and Nextion a moment to deal with life
   }
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
 void nextion::startOtaDownload(String otaUrl)
-{ // Upload firmware to the Nextion LCD via HTTP download
+{ 
+  // Upload firmware to the Nextion LCD via HTTP download
   // based in large part on code posted by indev2 here:
   // http://support.iteadstudio.com/support/discussions/topics/11000007686/page/2
 
@@ -309,7 +311,7 @@ void nextion::startOtaDownload(String otaUrl)
   const uint32_t lcdOtaTimeout = 30000; // timeout for receiving new data in milliseconds
   static uint32_t lcdOtaTimer = 0;      // timer for upload timeout
 
-  debugPrintln(String(F("LCD OTA: Attempting firmware download from: ")) + otaUrl);
+  hasp::debugPrintln(String(F("LCD OTA: Attempting firmware download from: ")) + otaUrl);
   WiFiClient lcdOtaWifi;
   HTTPClient lcdOtaHttp;
   lcdOtaHttp.begin(lcdOtaWifi, otaUrl);
@@ -328,34 +330,34 @@ void nextion::startOtaDownload(String otaUrl)
       debugPrintln(String(F("LCD OTA: File found at Server. Size ")) + String(lcdOtaRemaining) + String(F(" bytes in ")) + String(lcdOtaParts) + String(F(" 4k chunks.")));
 
       WiFiUDP::stopAll(); // Keep mDNS responder and MQTT traffic from breaking things
-      if (mqttClient.connected())
+      if (mqttWrapper::getClient().connected())
       {
         debugPrintln(F("LCD OTA: LCD firmware upload starting, closing MQTT connection."));
-        mqttClient.publish(mqttStatusTopic, "OFF", true, 1);
-        mqttClient.publish(mqttSensorTopic, "{\"status\": \"unavailable\"}", true, 1);
-        mqttClient.disconnect();
+        mqttWrapper::getClient().publish(mqttWrapper::statusTopic, "OFF", true, 1);
+        mqttWrapper::getClient().publish(mqttWrapper::sensorTopic, "{\"status\": \"unavailable\"}", true, 1);
+        mqttWrapper::getClient().disconnect();
       }
 
       WiFiClient *stream = lcdOtaHttp.getStreamPtr();      // get tcp stream
-      Serial1.write(nextionSuffix, sizeof(nextionSuffix)); // Send empty command
+      Serial1.write(suffix, sizeof(suffix)); // Send empty command
       Serial1.flush();
-      nextionHandleInput();
+      handleInput();
       String lcdOtaNextionCmd = "whmi-wri " + String(lcdOtaFileSize) + ",115200,0";
-      debugPrintln(String(F("LCD OTA: Sending LCD upload command: ")) + lcdOtaNextionCmd);
+      hasp::debugPrintln(String(F("LCD OTA: Sending LCD upload command: ")) + lcdOtaNextionCmd);
       Serial1.print(lcdOtaNextionCmd);
-      Serial1.write(nextionSuffix, sizeof(nextionSuffix));
+      Serial1.write(suffix, sizeof(suffix));
       Serial1.flush();
 
-      if (nextionOtaResponse())
+      if (otaResponse())
       {
-        debugPrintln(F("LCD OTA: LCD upload command accepted."));
+        hasp::debugPrintln(F("LCD OTA: LCD upload command accepted."));
       }
       else
       {
-        debugPrintln(F("LCD OTA: LCD upload command FAILED.  Restarting device."));
-        espReset();
+        hasp::debugPrintln(F("LCD OTA: LCD upload command FAILED.  Restarting device."));
+        hasp::reset();
       }
-      debugPrintln(F("LCD OTA: Starting update"));
+      hasp::debugPrintln(F("LCD OTA: Starting update"));
       lcdOtaTimer = millis();
       while (lcdOtaHttp.connected() && (lcdOtaRemaining > 0 || lcdOtaRemaining == -1))
       {                                                // Write incoming data to panel as it arrives
@@ -387,17 +389,17 @@ void nextion::startOtaDownload(String otaUrl)
             lcdOtaTransferred += lcdOtaChunkCounter;
             lcdOtaPercentComplete = (lcdOtaTransferred * 100) / lcdOtaFileSize;
             lcdOtaChunkCounter = 0;
-            if (nextionOtaResponse())
+            if (otaResponse())
             { // We've completed a chunk
-              debugPrintln(String(F("LCD OTA: Part ")) + String(lcdOtaPartNum) + String(F(" OK, ")) + String(lcdOtaPercentComplete) + String(F("% complete")));
+              hasp::debugPrintln(String(F("LCD OTA: Part ")) + String(lcdOtaPartNum) + String(F(" OK, ")) + String(lcdOtaPercentComplete) + String(F("% complete")));
               lcdOtaTimer = millis();
             }
             else
             {
-              debugPrintln(String(F("LCD OTA: Part ")) + String(lcdOtaPartNum) + String(F(" FAILED, ")) + String(lcdOtaPercentComplete) + String(F("% complete")));
-              debugPrintln(F("LCD OTA: failure"));
+              hasp::debugPrintln(String(F("LCD OTA: Part ")) + String(lcdOtaPartNum) + String(F(" FAILED, ")) + String(lcdOtaPercentComplete) + String(F("% complete")));
+              hasp::debugPrintln(F("LCD OTA: failure"));
               delay(2000); // extra delay while the LCD does its thing
-              espReset();
+              hasp::reset();
             }
           }
           else
@@ -412,41 +414,41 @@ void nextion::startOtaDownload(String otaUrl)
         delay(10);
         if ((lcdOtaTimer > 0) && ((millis() - lcdOtaTimer) > lcdOtaTimeout))
         { // Our timer expired so reset
-          debugPrintln(F("LCD OTA: ERROR: LCD upload timeout.  Restarting."));
-          espReset();
+          hasp::debugPrintln(F("LCD OTA: ERROR: LCD upload timeout.  Restarting."));
+          hasp::reset();
         }
       }
       lcdOtaPartNum++;
       lcdOtaTransferred += lcdOtaChunkCounter;
-      if ((lcdOtaTransferred == lcdOtaFileSize) && nextionOtaResponse())
+      if ((lcdOtaTransferred == lcdOtaFileSize) && otaResponse())
       {
-        debugPrintln(String(F("LCD OTA: Success, wrote ")) + String(lcdOtaTransferred) + " of " + String(tftFileSize) + " bytes.");
+        hasp::debugPrintln(String(F("LCD OTA: Success, wrote ")) + String(lcdOtaTransferred) + " of " + String(tftFileSize) + " bytes.");
         uint32_t lcdOtaDelay = millis();
         while ((millis() - lcdOtaDelay) < 5000)
         { // extra 5sec delay while the LCD handles any local firmware updates from new versions of code sent to it
-          webServer.handleClient();
+          web::getServer().handleClient();
           delay(1);
         }
-        espReset();
+        hasp::reset();
       }
       else
       {
-        debugPrintln(F("LCD OTA: Failure"));
-        espReset();
+        hasp::debugPrintln(F("LCD OTA: Failure"));
+        hasp::reset();
       }
     }
   }
   else
   {
-    debugPrintln(String(F("LCD OTA: HTTP GET failed, error code ")) + lcdOtaHttp.errorToString(lcdOtaHttpReturn));
-    espReset();
+    hasp::debugPrintln(String(F("LCD OTA: HTTP GET failed, error code ")) + lcdOtaHttp.errorToString(lcdOtaHttpReturn));
+    hasp::reset();
   }
   lcdOtaHttp.end();
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
 bool nextion::otaResponse()
-{ // Monitor the serial port for a 0x05 response within our timeout
+{ 
+  // Monitor the serial port for a 0x05 response within our timeout
 
   unsigned long nextionCommandTimeout = 2000;   // timeout for receiving termination string in milliseconds
   unsigned long nextionCommandTimer = millis(); // record current time for our timeout
@@ -470,49 +472,47 @@ bool nextion::otaResponse()
   return otaSuccessVal;
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
 void nextion::connect()
 {
-  if ((millis() - nextionCheckTimer) >= nextionCheckInterval)
+  if ((millis() - checkTimer) >= checkInterval)
   {
-    static unsigned int nextionRetryCount = 0;
-    if ((nextionModel.length() == 0) && (nextionRetryCount < (nextionRetryMax - 2)))
+    static unsigned int retryCount = 0;
+    if ((model.length() == 0) && (retryCount < (retryMax - 2)))
     { // Try issuing the "connect" command a few times
-      debugPrintln(F("HMI: sending Nextion connect request"));
-      nextionSendCmd("connect");
-      nextionRetryCount++;
-      nextionCheckTimer = millis();
+      hasp::debugPrintln(F("HMI: sending Nextion connect request"));
+      sendCmd("connect");
+      retryCount++;
+      checkTimer = millis();
     }
-    else if ((nextionModel.length() == 0) && (nextionRetryCount < nextionRetryMax))
+    else if ((nextionModel.length() == 0) && (retryCount < retryMax))
     { // If we still don't have model info, try to change nextion serial speed from 9600 to 115200
-      nextionSetSpeed();
-      nextionRetryCount++;
-      debugPrintln(F("HMI: sending Nextion serial speed 115200 request"));
-      nextionCheckTimer = millis();
+      setSpeed();
+      retryCount++;
+      hasp::debugPrintln(F("HMI: sending Nextion serial speed 115200 request"));
+      checkTimer = millis();
     }
-    else if ((lcdVersion < 1) && (nextionRetryCount <= nextionRetryMax))
+    else if ((lcdVersion < 1) && (retryCount <= retryMax))
     {
       if (nextionModel.length() == 0)
       { // one last hail mary, maybe the serial speed is set correctly now
-        nextionSendCmd("connect");
+        sendCmd("connect");
       }
-      nextionSendCmd("get " + lcdVersionQuery);
+      sendCmd("get " + lcdVersionQuery);
       lcdVersionQueryFlag = true;
-      nextionRetryCount++;
-      debugPrintln(F("HMI: sending Nextion version query"));
-      nextionCheckTimer = millis();
+      retryCount++;
+      hasp::debugPrintln(F("HMI: sending Nextion version query"));
+      checkTimer = millis();
     }
   }
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
 void nextion::setSpeed()
 {
   debugPrintln(F("HMI: No Nextion response, attempting 9600bps connection"));
   Serial1.begin(9600);
-  Serial1.write(nextionSuffix, sizeof(nextionSuffix));
+  Serial1.write(suffix, sizeof(suffix));
   Serial1.print("bauds=115200");
-  Serial1.write(nextionSuffix, sizeof(nextionSuffix));
+  Serial1.write(suffix, sizeof(suffix));
   Serial1.flush();
   Serial1.begin(115200);
 }
@@ -521,12 +521,12 @@ void nextion::setSpeed()
 void nextion::reset()
 {
   debugPrintln(F("HMI: Rebooting LCD"));
-  digitalWrite(nextionResetPin, LOW);
-  Serial1.print("rest");
-  Serial1.write(nextionSuffix, sizeof(nextionSuffix));
+  digitalWrite(resetPin, LOW);
+  Serial1.print("reset");
+  Serial1.write(suffix, sizeof(suffix));
   Serial1.flush();
   delay(100);
-  digitalWrite(nextionResetPin, HIGH);
+  digitalWrite(resetPin, HIGH);
 
   unsigned long lcdResetTimer = millis();
   const unsigned long lcdResetTimeout = 5000;
@@ -534,19 +534,19 @@ void nextion::reset()
   lcdConnected = false;
   while (!lcdConnected && (millis() < (lcdResetTimer + lcdResetTimeout)))
   {
-    nextionHandleInput();
+    handleInput();
   }
   if (lcdConnected)
   {
-    debugPrintln(F("HMI: Rebooting LCD completed"));
-    if (nextionActivePage)
+    hasp::debugPrintln(F("HMI: Rebooting LCD completed"));
+    if (activePage)
     {
-      nextionSendCmd("page " + String(nextionActivePage));
+      sendCmd("page " + String(activePage));
     }
   }
   else
   {
-    debugPrintln(F("ERROR: Rebooting LCD completed, but LCD is not responding."));
+    hasp::debugPrintln(F("ERROR: Rebooting LCD completed, but LCD is not responding."));
   }
-  mqttClient.publish(mqttStatusTopic, "OFF");
+  mqttWrapper::getClient().publish(mqttWrapper::statusTopic, "OFF");
 }

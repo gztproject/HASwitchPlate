@@ -56,10 +56,10 @@ void web::handleRoot()
   }
   hasp::debugPrintln(String(F("HTTP: Sending root page to client connected from: ")) + server.client().remoteIP().toString());
   String httpMessage = FPSTR(HTTP_HEADER);
-  httpMessage.replace("{v}", String(haspNode));
+  httpMessage.replace("{v}", String(hasp::node));
   httpMessage += FPSTR(HTTP_SCRIPT);
   httpMessage += FPSTR(HTTP_STYLE);
-  httpMessage += String(HASP_STYLE);
+  httpMessage += String(HASP_STYLE_STRING);
   httpMessage += FPSTR(HTTP_HEADER_END);
   httpMessage += String(F("<h1>"));
   httpMessage += String(haspNode);
@@ -74,64 +74,64 @@ void web::handleRoot()
   httpMessage += String(F("<br/><b>MQTT Port</b> <i><small>(required)</small></i><input id='mqttPort' required name='mqttPort' type='number' maxlength=5 placeholder='mqttPort' value='")) + String(mqttPort) + "'>";
   httpMessage += String(F("<br/><b>MQTT User</b> <i><small>(optional)</small></i><input id='mqttUser' name='mqttUser' maxlength=31 placeholder='mqttUser' value='")) + String(mqttUser) + "'>";
   httpMessage += String(F("<br/><b>MQTT Password</b> <i><small>(optional)</small></i><input id='mqttPassword' name='mqttPassword' type='password' maxlength=31 placeholder='mqttPassword' value='"));
-  if (strlen(mqttPassword) != 0)
+  if (strlen(hasp::mqttPassword) != 0)
   {
     httpMessage += String("********");
   }
   httpMessage += String(F("'><br/><br/><b>HASP Admin Username</b> <i><small>(optional)</small></i><input id='configUser' name='configUser' maxlength=31 placeholder='Admin User' value='")) + String(configUser) + "'>";
   httpMessage += String(F("<br/><b>HASP Admin Password</b> <i><small>(optional)</small></i><input id='configPassword' name='configPassword' type='password' maxlength=31 placeholder='Admin User Password' value='"));
-  if (strlen(configPassword) != 0)
+  if (strlen(hasp::configPassword) != 0)
   {
     httpMessage += String("********");
   }
   httpMessage += String(F("'><br/><hr><b>Motion Sensor Pin:&nbsp;</b><select id='motionPinConfig' name='motionPinConfig'>"));
   httpMessage += String(F("<option value='0'"));
-  if (!motionPin)
+  if (!hasp::motionPin)
   {
     httpMessage += String(F(" selected"));
   }
   httpMessage += String(F(">disabled/not installed</option><option value='D0'"));
-  if (motionPin == D0)
+  if (hasp::motionPin == D0)
   {
     httpMessage += String(F(" selected"));
   }
   httpMessage += String(F(">D0</option><option value='D1'"));
-  if (motionPin == D1)
+  if (hasp::motionPin == D1)
   {
     httpMessage += String(F(" selected"));
   }
   httpMessage += String(F(">D1</option></select>"));
 
   httpMessage += String(F("<br/><b>Serial debug output enabled:</b><input id='debugSerialEnabled' name='debugSerialEnabled' type='checkbox'"));
-  if (debugSerialEnabled)
+  if (hasp::debugSerialEnabled)
   {
     httpMessage += String(F(" checked='checked'"));
   }
   httpMessage += String(F("><br/><b>Telnet debug output enabled:</b><input id='debugTelnetEnabled' name='debugTelnetEnabled' type='checkbox'"));
-  if (debugTelnetEnabled)
+  if (hasp::debugTelnetEnabled)
   {
     httpMessage += String(F(" checked='checked'"));
   }
   httpMessage += String(F("><br/><b>mDNS enabled:</b><input id='mdnsEnabled' name='mdnsEnabled' type='checkbox'"));
-  if (mdnsEnabled)
+  if (hasp::mdnsEnabled)
   {
     httpMessage += String(F(" checked='checked'"));
   }
 
   httpMessage += String(F("><br/><b>Keypress beep enabled:</b><input id='beepEnabled' name='beepEnabled' type='checkbox'"));
-  if (beepEnabled)
+  if (hasp::beepEnabled)
   {
     httpMessage += String(F(" checked='checked'"));
   }
 
   httpMessage += String(F("><br/><hr><button type='submit'>save settings</button></form>"));
 
-  if (updateEspAvailable)
+  if (hasp::updateEspAvailable)
   {
     httpMessage += String(F("<br/><hr><font color='green'><center><h3>HASP Update available!</h3></center></font>"));
     httpMessage += String(F("<form method='get' action='espfirmware'>"));
-    httpMessage += String(F("<input id='espFirmwareURL' type='hidden' name='espFirmware' value='")) + espFirmwareUrl + "'>";
-    httpMessage += String(F("<button type='submit'>update HASP to v")) + String(updateEspAvailableVersion) + String(F("</button></form>"));
+    httpMessage += String(F("<input id='espFirmwareURL' type='hidden' name='espFirmware' value='")) + hasp::espFirmwareUrl + "'>";
+    httpMessage += String(F("<button type='submit'>update HASP to v")) + String(hasp::updateEspAvailableVersion) + String(F("</button></form>"));
   }
 
   httpMessage += String(F("<hr><form method='get' action='firmware'>"));
@@ -147,7 +147,7 @@ void web::handleRoot()
   httpMessage += String(F("<button type='submit'>factory reset settings</button></form>"));
 
   httpMessage += String(F("<hr><b>MQTT Status: </b>"));
-  if (mqttClient.connected())
+  if (mqttWrapper::getClient().connected())
   { // Check MQTT connection
     httpMessage += String(F("Connected"));
   }
@@ -155,11 +155,11 @@ void web::handleRoot()
   {
     httpMessage += String(F("<font color='red'><b>Disconnected</b></font>, return code: ")) + String(mqttClient.returnCode());
   }
-  httpMessage += String(F("<br/><b>MQTT ClientID: </b>")) + String(mqttClientId);
-  httpMessage += String(F("<br/><b>HASP Version: </b>")) + String(haspVersion);
-  httpMessage += String(F("<br/><b>LCD Model: </b>")) + String(nextionModel);
-  httpMessage += String(F("<br/><b>LCD Version: </b>")) + String(lcdVersion);
-  httpMessage += String(F("<br/><b>LCD Active Page: </b>")) + String(nextionActivePage);
+  httpMessage += String(F("<br/><b>MQTT ClientID: </b>")) + String(hasp::mqttClientId);
+  httpMessage += String(F("<br/><b>HASP Version: </b>")) + String(hasp::haspVersion);
+  httpMessage += String(F("<br/><b>LCD Model: </b>")) + String(hasp::nextionModel);
+  httpMessage += String(F("<br/><b>LCD Version: </b>")) + String(hasp::lcdVersion);
+  httpMessage += String(F("<br/><b>LCD Active Page: </b>")) + String(nextion::activePage);
   httpMessage += String(F("<br/><b>CPU Frequency: </b>")) + String(ESP.getCpuFreqMHz()) + String(F("MHz"));
   httpMessage += String(F("<br/><b>Sketch Size: </b>")) + String(ESP.getSketchSize()) + String(F(" bytes"));
   httpMessage += String(F("<br/><b>Free Sketch Space: </b>")) + String(ESP.getFreeSketchSpace()) + String(F(" bytes"));
@@ -189,125 +189,125 @@ void webHandleSaveConfig()
   }
   debugPrintln(String(F("HTTP: Sending /saveConfig page to client connected from: ")) + server.client().remoteIP().toString());
   String httpMessage = FPSTR(HTTP_HEADER);
-  httpMessage.replace("{v}", String(haspNode));
+  httpMessage.replace("{v}", String(hasp::node));
   httpMessage += FPSTR(HTTP_SCRIPT);
   httpMessage += FPSTR(HTTP_STYLE);
-  httpMessage += String(HASP_STYLE);
+  httpMessage += String(HASP_STYLE_STRING);
 
   bool shouldSaveWifi = false;
   // Check required values
   if (server.arg("wifiSSID") != "" && server.arg("wifiSSID") != String(WiFi.SSID()))
   { // Handle WiFi update
-    shouldSaveConfig = true;
+    hasp::shouldSaveConfig = true;
     shouldSaveWifi = true;
     server
-.arg("wifiSSID").toCharArray(wifiSSID, 32);
+.arg("wifiSSID").toCharArray(hasp::wifiSSID, 32);
     if (server
 .arg("wifiPass") != String("********"))
     {
       server
-  .arg("wifiPass").toCharArray(wifiPass, 64);
+  .arg("wifiPass").toCharArray(hasp::wifiPass, 64);
     }
   }
-  if (server.arg("mqttServer") != "" && server.arg("mqttServer") != String(mqttServer))
+  if (server.arg("mqttServer") != "" && server.arg("mqttServer") != String(hasp::mqttServer))
   { // Handle mqttServer
-    shouldSaveConfig = true;
+    hasp::shouldSaveConfig = true;
     server
-.arg("mqttServer").toCharArray(mqttServer, 64);
+.arg("mqttServer").toCharArray(hasp::mqttServer, 64);
   }
-  if (server.arg("mqttPort") != "" && server.arg("mqttPort") != String(mqttPort))
+  if (server.arg("mqttPort") != "" && server.arg("mqttPort") != String(hasp::mqttPort))
   { // Handle mqttPort
-    shouldSaveConfig = true;
+    hasp::shouldSaveConfig = true;
     server
-.arg("mqttPort").toCharArray(mqttPort, 6);
+.arg("mqttPort").toCharArray(hasp::mqttPort, 6);
   }
-  if (server.arg("haspNode") != "" && server.arg("haspNode") != String(haspNode))
+  if (server.arg("haspNode") != "" && server.arg("haspNode") != String(hasp::node))
   { // Handle haspNode
-    shouldSaveConfig = true;
+    hasp::shouldSaveConfig = true;
     String lowerHaspNode = server
 .arg("haspNode");
     lowerHaspNode.toLowerCase();
-    lowerHaspNode.toCharArray(haspNode, 16);
+    lowerHaspNode.toCharArray(hasp::node, 16);
   }
-  if (server.arg("groupName") != "" && server.arg("groupName") != String(groupName))
+  if (server.arg("groupName") != "" && server.arg("groupName") != String(hasp::groupName))
   { // Handle groupName
-    shouldSaveConfig = true;
+    hasp::shouldSaveConfig = true;
     server
-.arg("groupName").toCharArray(groupName, 16);
+.arg("groupName").toCharArray(hasp::groupName, 16);
   }
   // Check optional values
-  if (server.arg("mqttUser") != String(mqttUser))
+  if (server.arg("mqttUser") != String(hasp::mqttUser))
   { // Handle mqttUser
-    shouldSaveConfig = true;
+    hasp::shouldSaveConfig = true;
     server
-.arg("mqttUser").toCharArray(mqttUser, 32);
+.arg("mqttUser").toCharArray(hasp::mqttUser, 32);
   }
   if (server.arg("mqttPassword") != String("********"))
   { // Handle mqttPassword
-    shouldSaveConfig = true;
+    hasp::shouldSaveConfig = true;
     server
-.arg("mqttPassword").toCharArray(mqttPassword, 32);
+.arg("mqttPassword").toCharArray(hasp::mqttPassword, 32);
   }
-  if (server.arg("configUser") != String(configUser))
+  if (server.arg("configUser") != String(hasp::configUser))
   { // Handle configUser
-    shouldSaveConfig = true;
+    hasp::shouldSaveConfig = true;
     server
-.arg("configUser").toCharArray(configUser, 32);
+.arg("configUser").toCharArray(hasp::configUser, 32);
   }
   if (server.arg("configPassword") != String("********"))
   { // Handle configPassword
-    shouldSaveConfig = true;
+    hasp::shouldSaveConfig = true;
     server
-.arg("configPassword").toCharArray(configPassword, 32);
+.arg("configPassword").toCharArray(hasp::configPassword, 32);
   }
-  if (server.arg("motionPinConfig") != String(motionPinConfig))
+  if (server.arg("motionPinConfig") != String(hasp::motionPin))
   { // Handle motionPinConfig
-    shouldSaveConfig = true;
+    hasp::shouldSaveConfig = true;
     server
-.arg("motionPinConfig").toCharArray(motionPinConfig, 3);
+.arg("motionPinConfig").toCharArray(hasp::motionPin, 3);
   }
-  if ((server.arg("debugSerialEnabled") == String("on")) && !debugSerialEnabled)
+  if ((server.arg("debugSerialEnabled") == String("on")) && !hasp::debugSerialEnabled)
   { // debugSerialEnabled was disabled but should now be enabled
-    shouldSaveConfig = true;
-    debugSerialEnabled = true;
+    hasp::shouldSaveConfig = true;
+    hasp::debugSerialEnabled = true;
   }
-  else if ((server.arg("debugSerialEnabled") == String("")) && debugSerialEnabled)
+  else if ((server.arg("debugSerialEnabled") == String("")) && hasp::debugSerialEnabled)
   { // debugSerialEnabled was enabled but should now be disabled
-    shouldSaveConfig = true;
-    debugSerialEnabled = false;
+    hasp::shouldSaveConfig = true;
+    hasp::debugSerialEnabled = false;
   }
-  if ((server.arg("debugTelnetEnabled") == String("on")) && !debugTelnetEnabled)
+  if ((server.arg("debugTelnetEnabled") == String("on")) && !hasp::debugTelnetEnabled)
   { // debugTelnetEnabled was disabled but should now be enabled
-    shouldSaveConfig = true;
-    debugTelnetEnabled = true;
+    hasp::shouldSaveConfig = true;
+    hasp::debugTelnetEnabled = true;
   }
-  else if ((server.arg("debugTelnetEnabled") == String("")) && debugTelnetEnabled)
+  else if ((server.arg("debugTelnetEnabled") == String("")) && hasp::debugTelnetEnabled)
   { // debugTelnetEnabled was enabled but should now be disabled
-    shouldSaveConfig = true;
-    debugTelnetEnabled = false;
+    hasp::shouldSaveConfig = true;
+    hasp::debugTelnetEnabled = false;
   }
-  if ((server.arg("mdnsEnabled") == String("on")) && !mdnsEnabled)
+  if ((server.arg("mdnsEnabled") == String("on")) && !hasp::mdnsEnabled)
   { // mdnsEnabled was disabled but should now be enabled
-    shouldSaveConfig = true;
-    mdnsEnabled = true;
+    hasp::shouldSaveConfig = true;
+    hasp::mdnsEnabled = true;
   }
-  else if ((server.arg("mdnsEnabled") == String("")) && mdnsEnabled)
+  else if ((server.arg("mdnsEnabled") == String("")) && hasp::mdnsEnabled)
   { // mdnsEnabled was enabled but should now be disabled
-    shouldSaveConfig = true;
-    mdnsEnabled = false;
+    hasp::shouldSaveConfig = true;
+    hasp::mdnsEnabled = false;
   }
-  if ((server.arg("beepEnabled") == String("on")) && !beepEnabled)
+  if ((server.arg("beepEnabled") == String("on")) && !hasp::beepEnabled)
   { // beepEnabled was disabled but should now be enabled
-    shouldSaveConfig = true;
-    beepEnabled = true;
+    hasp::shouldSaveConfig = true;
+    hasp::beepEnabled = true;
   }
-  else if ((server.arg("beepEnabled") == String("")) && beepEnabled)
+  else if ((server.arg("beepEnabled") == String("")) && hasp::beepEnabled)
   { // beepEnabled was enabled but should now be disabled
-    shouldSaveConfig = true;
-    beepEnabled = false;
+    hasp::shouldSaveConfig = true;
+    hasp::beepEnabled = false;
   }
 
-  if (shouldSaveConfig)
+  if (hasp::shouldSaveConfig)
   { // Config updated, notify user and trigger write to SPIFFS
     httpMessage += String(F("<meta http-equiv='refresh' content='15;url=/' />"));
     httpMessage += FPSTR(HTTP_HEADER_END);
@@ -317,14 +317,14 @@ void webHandleSaveConfig()
     server
 .send(200, "text/html", httpMessage);
 
-    configSave();
+    persistance::configSave();
     if (shouldSaveWifi)
     {
-      debugPrintln(String(F("CONFIG: Attempting connection to SSID: ")) + server
+      hasp::debugPrintln(String(F("CONFIG: Attempting connection to SSID: ")) + server
   .arg("wifiSSID"));
-      espWifiSetup();
+      hasp::wifiSetup();
     }
-    espReset();
+    hasp::reset();
   }
   else
   { // No change found, notify user and link back to config page
@@ -338,13 +338,12 @@ void webHandleSaveConfig()
   }
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-void webHandleResetConfig()
+void handleResetConfig()
 { // http://plate01/resetConfig
-  if (configPassword[0] != '\0')
+  if (hasp::configPassword[0] != '\0')
   { //Request HTTP auth if configPassword is set
     if (!server
-.authenticate(configUser, configPassword))
+.authenticate(hasp::configUser, configPassword))
     {
       return server
   .requestAuthentication();
@@ -352,10 +351,10 @@ void webHandleResetConfig()
   }
   debugPrintln(String(F("HTTP: Sending /resetConfig page to client connected from: ")) + server.client().remoteIP().toString());
   String httpMessage = FPSTR(HTTP_HEADER);
-  httpMessage.replace("{v}", String(haspNode));
+  httpMessage.replace("{v}", String(hasp::node));
   httpMessage += FPSTR(HTTP_SCRIPT);
   httpMessage += FPSTR(HTTP_STYLE);
-  httpMessage += String(HASP_STYLE);
+  httpMessage += String(HASP_STYLE_STRING);
   httpMessage += FPSTR(HTTP_HEADER_END);
 
   if (server.arg("confirm") == "yes")
@@ -382,8 +381,7 @@ void webHandleResetConfig()
   }
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-void webHandleResetBacklight()
+void handleResetBacklight()
 { // http://plate01/resetBacklight
   if (configPassword[0] != '\0')
   { //Request HTTP auth if configPassword is set
@@ -400,7 +398,7 @@ void webHandleResetBacklight()
   httpMessage.replace("{v}", (String(haspNode) + " HASP backlight reset"));
   httpMessage += FPSTR(HTTP_SCRIPT);
   httpMessage += FPSTR(HTTP_STYLE);
-  httpMessage += String(HASP_STYLE);
+  httpMessage += String(HASP_STYLE_STRING);
   httpMessage += String(F("<meta http-equiv='refresh' content='3;url=/' />"));
   httpMessage += FPSTR(HTTP_HEADER_END);
   httpMessage += String(F("<h1>")) + String(haspNode) + String(F("</h1>"));
@@ -411,8 +409,7 @@ void webHandleResetBacklight()
   nextionSetAttr("dims", "100");
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-void webHandleFirmware()
+void handleFirmware()
 { // http://plate01/firmware
   if (configPassword[0] != '\0')
   { //Request HTTP auth if configPassword is set
@@ -425,10 +422,10 @@ void webHandleFirmware()
   }
   debugPrintln(String(F("HTTP: Sending /firmware page to client connected from: ")) + server.client().remoteIP().toString());
   String httpMessage = FPSTR(HTTP_HEADER);
-  httpMessage.replace("{v}", (String(haspNode) + " update"));
+  httpMessage.replace("{v}", (String(hasp::node) + " update"));
   httpMessage += FPSTR(HTTP_SCRIPT);
   httpMessage += FPSTR(HTTP_STYLE);
-  httpMessage += String(HASP_STYLE);
+  httpMessage += String(HASP_STYLE_STRING);
   httpMessage += FPSTR(HTTP_HEADER_END);
   httpMessage += String(F("<h1>")) + String(haspNode) + String(F(" firmware</h1>"));
 
@@ -436,12 +433,12 @@ void webHandleFirmware()
   // HTTPS Disabled pending resolution of issue: https://github.com/esp8266/Arduino/issues/4696
   // Until then, using a proxy host at http://haswitchplate.com to deliver unsecured firmware images from GitHub
   httpMessage += String(F("<form method='get' action='/espfirmware'>"));
-  if (updateEspAvailable)
+  if (hasp::updateEspAvailable)
   {
     httpMessage += String(F("<font color='green'><b>HASP ESP8266 update available!</b></font>"));
   }
   httpMessage += String(F("<br/><b>Update ESP8266 from URL</b><small><i> http only</i></small>"));
-  httpMessage += String(F("<br/><input id='espFirmwareURL' name='espFirmware' value='")) + espFirmwareUrl + "'>";
+  httpMessage += String(F("<br/><input id='espFirmwareURL' name='espFirmware' value='")) + hasp::espFirmwareUrl + "'>";
   httpMessage += String(F("<br/><br/><button type='submit'>Update ESP from URL</button></form>"));
 
   httpMessage += String(F("<br/><form method='POST' action='/update' enctype='multipart/form-data'>"));
@@ -453,12 +450,12 @@ void webHandleFirmware()
   httpMessage += String(F("After a power cycle, the LCD will display an error message until a successful firmware update has completed.<br/>"));
 
   httpMessage += String(F("<br/><hr><form method='get' action='lcddownload'>"));
-  if (updateLcdAvailable)
+  if (hasp::updateLcdAvailable)
   {
     httpMessage += String(F("<font color='green'><b>HASP LCD update available!</b></font>"));
   }
   httpMessage += String(F("<br/><b>Update Nextion LCD from URL</b><small><i> http only</i></small>"));
-  httpMessage += String(F("<br/><input id='lcdFirmware' name='lcdFirmware' value='")) + lcdFirmwareUrl + "'>";
+  httpMessage += String(F("<br/><input id='lcdFirmware' name='lcdFirmware' value='")) + hasp::lcdFirmwareUrl + "'>";
   httpMessage += String(F("<br/><br/><button type='submit'>Update LCD from URL</button></form>"));
 
   httpMessage += String(F("<br/><form method='POST' action='/lcdupload' enctype='multipart/form-data'>"));
@@ -481,9 +478,9 @@ void webHandleFirmware()
   server.send(200, "text/html", httpMessage);
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-void webHandleEspFirmware()
-{ // http://plate01/espfirmware
+void handleEspFirmware()
+{ 
+  // http://plate01/espfirmware
   if (configPassword[0] != '\0')
   { //Request HTTP auth if configPassword is set
     if (!server
@@ -513,9 +510,9 @@ void webHandleEspFirmware()
   espStartOta(server.arg("espFirmware"));
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-void webHandleLcdUpload()
-{ // http://plate01/lcdupload
+void handleLcdUpload()
+{ 
+  // http://plate01/lcdupload
   // Upload firmware to the Nextion LCD via HTTP upload
 
   if (configPassword[0] != '\0')
@@ -766,9 +763,9 @@ void webHandleLcdUpload()
   }
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-void webHandleLcdUpdateSuccess()
-{ // http://plate01/lcdOtaSuccess
+void handleLcdUpdateSuccess()
+{ 
+  // http://plate01/lcdOtaSuccess
   if (configPassword[0] != '\0')
   { //Request HTTP auth if configPassword is set
     if (!server
@@ -792,9 +789,9 @@ void webHandleLcdUpdateSuccess()
   server.send(200, "text/html", httpMessage);
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-void webHandleLcdUpdateFailure()
-{ // http://plate01/lcdOtaFailure
+void handleLcdUpdateFailure()
+{ 
+  // http://plate01/lcdOtaFailure
   if (configPassword[0] != '\0')
   { //Request HTTP auth if configPassword is set
     if (!server
@@ -818,9 +815,9 @@ void webHandleLcdUpdateFailure()
   server.send(200, "text/html", httpMessage);
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-void webHandleLcdDownload()
-{ // http://plate01/lcddownload
+void handleLcdDownload()
+{ 
+  // http://plate01/lcddownload
   if (configPassword[0] != '\0')
   { //Request HTTP auth if configPassword is set
     if (!server
@@ -847,9 +844,9 @@ void webHandleLcdDownload()
   nextionStartOtaDownload(server.arg("lcdFirmware"));
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-void webHandleTftFileSize()
-{ // http://plate01/tftFileSize
+void handleTftFileSize()
+{
+  // http://plate01/tftFileSize
   if (configPassword[0] != '\0')
   { //Request HTTP auth if configPassword is set
     if (!server
@@ -869,9 +866,9 @@ void webHandleTftFileSize()
   debugPrintln(String(F("WEB: tftFileSize: ")) + String(tftFileSize));
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
-void webHandleReboot()
-{ // http://plate01/reboot
+void handleReboot()
+{ 
+  // http://plate01/reboot
   if (configPassword[0] != '\0')
   { //Request HTTP auth if configPassword is set
     if (!server

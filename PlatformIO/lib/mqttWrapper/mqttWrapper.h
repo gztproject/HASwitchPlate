@@ -23,6 +23,8 @@ public:
     static String lightBrightCommandTopic; // MQTT topic for incoming panel backlight dimmer commands
     static String lightBrightStateTopic;   // MQTT topic for outgoing panel backlight dimmer state
     static String motionStateTopic;        // MQTT topic for outgoing motion sensor state
+    static String getSubtopic;             // MQTT subtopic for incoming commands requesting .val
+    static String getSubtopicJSON;         // MQTT object buffer for JSON status when requesting .val
 
     static void begin();
     static void connect();
@@ -31,11 +33,10 @@ public:
 
 private:
     static MQTTClient client;
-    static String mqttClientId;        // Auto-generated MQTT ClientID
-    static String mqttGetSubtopic;     // MQTT subtopic for incoming commands requesting .val
-    static String mqttGetSubtopicJSON; // MQTT object buffer for JSON status when requesting .val
+    static String clientId; // Auto-generated MQTT ClientID
 
     static void callback(String &strTopic, String &strPayload);
+    String getSubtringField(String data, char separator, int index);
     mqttWrapper(){};
 };
 
